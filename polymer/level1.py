@@ -102,6 +102,10 @@ class Level1(object):
             from polymer.level1_landsat8 import Level1_OLI
             L1 = Level1_OLI
 
+        elif self.sensor == 'hypso1':
+            from polymer.level1_hypso1 import Level1_HYPSO1
+            L1 = Level1_HYPSO1
+
         else:
             raise Exception('Invalid sensor name "{}"'.format(self.sensor))
 
