@@ -253,26 +253,23 @@ dependencies:
   - zstd=1.5.7=hb8e6e7a_2
   - pip:
       - affine==2.4.0
-      - appdirs==1.4.4
       - cfgrib==0.9.15.1
       - cligj==0.7.2
       - eccodes==2.44.0
       - eccodeslib==2.44.1.8
       - eckitlib==1.32.4.8
-      - eumdac==3.1.1
       - fckitlib==0.14.1.8
       - findlibs==0.1.2
-      - fs==2.4.16
       - h5netcdf==1.7.3
       - llvmlite==0.46.0
       - numba==0.63.1
-      - paho-mqtt==2.1.0
       - pysolar==0.13
       - python-dotenv==1.2.1
       - rasterio==1.5.0
       - rioxarray==0.20.0
+      - shapely==2.1.2
       - toml==0.10.2
-      - core @ git+https://github.com/hygeos/core#e176f674eb93ec058e33822bf268295fc5a2e3d4
-      - eoread @ git+https://github.com/hygeos/eoread#3997d176ec43231064d7455dc1e23e689cc4a528
-      - eotools @ git+https://github.com/hygeos/eotools#78502021823a146639630bfc6b19687f037c9002
+      - core @ git+https://github.com/hygeos/core#71527c54f49955dd5aa6d604efb917d2e554d0b5
+      - eoread @ git+https://github.com/hygeos/eoread#57fba2321ba950b3982246ee861d1213926f60f9
+      - eotools @ git+https://github.com/hygeos/eotools#7729b45d3d9a9760e5216447ef86f228fc59dbf7
       - luts @ git+https://github.com/hygeos/luts#1d6452697e65af60304cf49448a6ce336b498b69

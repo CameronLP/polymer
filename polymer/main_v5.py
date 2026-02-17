@@ -82,7 +82,7 @@ def run_polymer(
         The path to the output product.
     """
     if isinstance(level1, (Path, str)):
-        ds = Level1(Path(level1))
+        ds = Level1(Path(level1), v1_compat=kwargs.get('v1_compat', False))
         basename = Path(level1).name
     elif isinstance(level1, xr.Dataset):
         ds = level1
@@ -172,21 +172,40 @@ def init(ds: xr.Dataset, srf: xr.Dataset, params):
     # Store the params in the object attributes
     ds.attrs.update(params.items())
 
+
+def compat(ds: xr.Dataset) -> xr.Dataset:
+    '''
+    Compatibility of new eoread inputs with current implementation.
+    This compatibility function may be removed eventually.
+
+    '''
+    if 'bands_group' in ds:
+        ds = ds.drop_vars('bands_group')
+
+    for varname in ds:
+        if ds[varname].dtype == 'float64':
+            ds[varname] = ds[varname].astype('float32')
+        
+    return ds
+
+
 def run_polymer_dataset(ds: xr.Dataset, **kwargs) -> xr.Dataset:
     """
     Polymer: main function at dataset level
     """
-    if "srf_getter" in kwargs:
+    ds = compat(ds)
+
+    params = Params(getattr(ds, 'sensor', None), **kwargs)
+
+    if "srf_getter" in params.asdict():
         srf = rename(
-            get_SRF(ds, **kwargs),
+            get_SRF(ds, **params.asdict()),
             ds.bands.values,
             thres_check=kwargs.get("srf_thres_check", 10.0),
         )
     else:
         # empty dictionary when srfs are not provided
         srf = xr.Dataset()
-
-    params = Params(getattr(ds, 'sensor', None), **kwargs)
 
     init(ds, srf, params)
     

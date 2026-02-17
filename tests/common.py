@@ -53,6 +53,7 @@ def run_v5(testcase, **kwargs) -> xr.Dataset:
                 split_bands=False,
                 verbose=False,
                 output_datasets=default_output_datasets+additional_output_datasets,
+                v1_compat=True,
                 **kwargs,
             )
         ds = load_polymer(file_v5)

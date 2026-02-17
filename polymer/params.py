@@ -1000,6 +1000,9 @@ class Params(object):
     def __setattr__(self, key, value):
         self.__dict__['_odict'][key] = value
 
+    def asdict(self):
+        return self.__dict__['_odict']
+
     def items(self):
         return self.__dict__['_odict'].items()
 
