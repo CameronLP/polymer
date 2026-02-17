@@ -278,6 +278,8 @@ class Params(object):
             self.defaults_prisma()
         elif sensor == 'OCI':
             self.defaults_pace_oci()
+        elif sensor == 'HAWKEYE':
+            self.defaults_hawkeye()
         elif sensor.startswith('HYPSO'):
             self.defaults_hypso()
 
@@ -911,6 +913,21 @@ class Params(object):
         from eoread.ancillary_nasa import Ancillary_NASA
         self.ancillary = Ancillary_NASA()
     
+
+    def defaults_hawkeye(self):
+        """
+        Defaults for SeaHawk Hawkeye
+        """
+        from eoread.ancillary_nasa import Ancillary_NASA
+        self.ancillary=Ancillary_NASA()
+        self.bands_corr=[     447, 488, 510, 556, 670, 752, 867]
+        self.bands_oc=  [     447, 488, 510, 556, 670, 752, 867]
+        self.bands_rw=  [412, 447, 488, 510, 556, 670, 752, 867]
+        self.calib=None
+        self.srf_getter="eotools.srf.get_SRF_NASA"
+        self.srf_getter_arg="seahawk1_hawkeye"
+        self.band_cloudmask=867
+
 
     def defaults_pace_oci(self):
 
