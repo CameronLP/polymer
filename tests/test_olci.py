@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
+import xarray as xr
 from tempfile import TemporaryDirectory
 
 import numpy as np
@@ -12,6 +13,7 @@ from core.files.fileutils import mdir
 from eoread import autodetect, olci
 from eoread.common import timeit
 from matplotlib import pyplot as plt
+import matplotlib.patches as patches
 
 from polymer.level1 import Level1
 from polymer.level1_olci import Level1_OLCI
@@ -23,18 +25,25 @@ from tests.common import diff, diff_flags, load_polymer, plot, run_v4, run_v5
 
 from . import conftest
 
-olci_level1 = str(
+olci_level1 = str(   # TODO: remove
     getdir('DIR_DATA')/'sample_products'/
     'S3A_OL_1_EFR____20160720T093221_20160720T093421_20171002T063740_0119_006_307______MR1_R_NT_002.SEN3')
 
-
 @pytest.fixture
 def testcase():
+    # North sea
+    pid = 'S3A_OL_1_EFR____20160720T093226_20160720T093526_20241003T153523_0179_006_307_1980_MAR_R_NT_004.SEN3'
+    targetdir = mdir(getdir('DIR_SAMPLES')/'SENTINEL-3-OLCI')
+    target = targetdir / pid
+    if not target.exists():
+        from sand.eumdac import DownloadEumDAC
+        dl = DownloadEumDAC()
+        target = dl.download_file(pid, targetdir, api_collection=['EO:EUM:DAT:0885'])
+    assert target.exists()
     return {
-        # Gironde estuary
-        "level1": olci.get_sample("level1_fr")/olci.get_sample("level1_fr").name,
-        "roi": {"x": slice(1717, 2151), "y": slice(2330, 2607)},
-        "px": {"x": 100, "y": 100},
+        "level1": target/target.name,
+        "roi": {"x": slice(0, 500), "y": slice(3500, 4000)},
+        "px": {"x": 200, "y": 100},  # Within roi
     }
 
 
@@ -53,7 +62,7 @@ def testcase():
         'eline':2639,
     }),
 ])
-def test_olci(request, uncertainties, roi_desc, roi):
+def test_olci(request, uncertainties, roi_desc, roi, testcase):
     dsts = [
             'sza',
             'vza',
@@ -73,7 +82,7 @@ def test_olci(request, uncertainties, roi_desc, roi):
             ]
 
     l2 = run_atm_corr(
-        Level1_OLCI(olci_level1, **roi),
+        Level1_OLCI(str(testcase['level1']), **roi),
         Level2('memory', datasets=dsts),
         bands_rw=[400,412,443,490,510,560,620,665,674,681,709,754,779,865,1020],
         uncertainties=uncertainties,
@@ -104,7 +113,7 @@ def test_olci(request, uncertainties, roi_desc, roi):
         conftest.savefig(request)
 
 
-def test_spectrum(request):
+def test_spectrum(request, testcase):
     dsts = [
             'Rprime',
             'Rw',
@@ -125,7 +134,7 @@ def test_spectrum(request):
 
     wav = [400,412,443,490,510,560,620,665,674,681,709,754,779,865,1020]
     l2 = run_atm_corr(
-        Level1_OLCI(olci_level1, **roi),
+        Level1_OLCI(str(testcase['level1']), **roi),
         Level2('memory', datasets=dsts),
         bands_rw=wav,
         uncertainties=True,
@@ -162,10 +171,10 @@ def test_spectrum(request):
         'eline':2639,
     }),
 ])
-def test_olci_write(roi_desc, roi):
+def test_olci_write(roi_desc, roi, testcase):
     with TemporaryDirectory() as tmpdir:
         run_atm_corr(
-            Level1_OLCI(olci_level1, **roi),
+            Level1_OLCI(str(testcase['level1']), **roi),
             Level2(outdir=tmpdir),
         )
 
@@ -173,13 +182,35 @@ def test_browse(request, testcase):
     """ 
     Test initialization, simple scene view
     """
-    with timeit('polymer v5 init'):
-        ds = run_polymer_dataset(
-            autodetect.Level1(testcase['level1'])
-        )
+    with timeit('reader init'):
+        ds = autodetect.Level1(testcase['level1'], v1_compat=True)
+    # global area
     plt.imshow(ds.Rtoa.sel(bands=865))
     plt.colorbar()
+    # Add rectangle for ROI
+    rect = patches.Rectangle(
+        (testcase["roi"]["x"].start, testcase["roi"]["y"].start),
+        testcase["roi"]["x"].stop - testcase["roi"]["x"].start,
+        testcase["roi"]["y"].stop - testcase["roi"]["y"].start,
+        linewidth=2,
+        edgecolor="red",
+        facecolor="none",
+    )
+    plt.gca().add_patch(rect)
     conftest.savefig(request)
+
+    # plot ROI
+    plt.imshow(ds.Rtoa.sel(testcase['roi']).sel(bands=865))
+    plt.plot([testcase['px']['x']], [testcase['px']['y']], "r+")
+    plt.colorbar()
+    conftest.savefig(request)
+
+    # Spectrum
+    ds.Rtoa.sel(testcase['roi']).sel(testcase['px']).plot()
+    plt.grid()
+    conftest.savefig(request)
+    with xr.set_options(display_max_rows=150):
+        print(ds.sel(testcase['roi']).sel(testcase['px']).compute())
 
 
 def test_v4(request, testcase):
@@ -205,18 +236,18 @@ def test_v4_v5(testcase, request):
     v5 = run_v5(testcase)
 
     for b in v5.bands.values:
-        diff(v4.rho_w.sel(bands=b), f'rho_w({b}) v4',
-                v5.rho_w.sel(bands=b), f'rho_w({b}) v5')
+        diff(v4.Rtoa.sel(bands=b), f'rho_toa({b}) v4',
+             v5.Rtoa.sel(bands=b), f'rho_toa({b}) v5')
         conftest.savefig(request)
     
-    for varname in ['logchl', 'logfb', 'latitude', 'longitude', 'Rgli', 'Rnir']:
-        diff(v4[varname], f'{varname} v4',
-                v5[varname], f'{varname} v5')
-        conftest.savefig(request)
+    # for varname in ['Rtoa', 'Rprime']:
+    #     diff(v4[varname], f'{varname} v4',
+    #          v5[varname], f'{varname} v5')
+    #     conftest.savefig(request)
 
-    diff(v4.flags, 'bitmask v4',
-            v5.flags, 'flags v5', percentile=0)
-    conftest.savefig(request)
+    # diff(v4.flags, 'bitmask v4',
+    #         v5.flags, 'flags v5', percentile=0)
+    # conftest.savefig(request)
 
     for _ in diff_flags(
         v4.flags,

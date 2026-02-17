@@ -41,8 +41,8 @@ def test_msi(request, msi_product, uncertainties):
     l1 = Level1_MSI(
             msi_product,
             ancillary='ECMWFT',
-            sline=0, eline=99,
-            scol=0, ecol=99, resolution='20')
+            sline=500, eline=800,
+            scol=1000, ecol=1400, resolution='60')
     with tempfile.TemporaryDirectory() as tmpdir:
         ret = run_atm_corr(
             l1,
