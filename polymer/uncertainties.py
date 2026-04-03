@@ -83,6 +83,9 @@ class TOA_Uncertainties(BlockProcessor):
     def created_vars(self) -> list[Var]:
         return [Var('Rtoa_var')]
     
+    def auto_template(self) -> bool:
+        return True
+    
     def process_block(self, block: xr.Dataset):
         Rtoa_var = (block.Ltoa/self.Ltyp) * (np.pi*self.sigma_typ/(block.F0*block.mus))**2
         block['Rtoa_var'] = Rtoa_var.astype('float32')
