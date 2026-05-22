@@ -13,13 +13,10 @@ project(
 # Python and dependencies setup
 py = import('python').find_installation('python3')
 cython = find_program('cython', required : true)
-numpy_inc = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()
-python_inc = run_command(py, ['-c', 'from sysconfig import get_paths as gp; print(gp()["include"])'], check: true).stdout().strip()
+numpy_inc_path = run_command(py, ['-c', 'import numpy; print(numpy.get_include())'], check: true).stdout().strip()
 
 # Common include directories
 inc = [
-    numpy_inc,
-    python_inc,
     'polymer',
 ]
 
@@ -36,6 +33,7 @@ cython_args = [
 common_c_args = [
     '-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION',
     '-w',  # Suppress warnings (optional)
+    '-I@0@'.format(numpy_inc_path),  # Numpy include via -I to bypass Meson source-tree check
 ]
 
 # Static library for Fresnel C code
