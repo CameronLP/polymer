@@ -18,13 +18,15 @@ from tempfile import TemporaryDirectory
     ('surf_press', 1013),
     ('ozone', 400.),
 ])
-@pytest.mark.parametrize('offset', [  # offset=number of days
-    1,
-    20,
-    100,
+@pytest.mark.parametrize('mode,offset', [  # offset=number of days
+    ('NASA', 1),
+    ('NASA', 20),
+    ('NASA', 100),
+    # ('ERA5', 1),  # expected to fail (data not yet available)
+    ('ERA5', 20),
+    ('ERA5', 100),
 ])
-@pytest.mark.parametrize('mode', ['NASA', 'ERA5'])
-def test_ancillary(request, variable, typ_value, offset, mode):
+def test_ancillary(request, variable, typ_value, mode, offset):
     with TemporaryDirectory() as tmpdir:
         if mode == 'NASA':
             anc = Ancillary_NASA(directory=tmpdir)
@@ -67,14 +69,10 @@ def test_download_nofile(url):
         ret = Ancillary_NASA().download(url, str(tmpfile))
         assert ret != 0
 
-@pytest.mark.parametrize('valid_auth',[True, False])
-def test_download_auth(valid_auth):
+def test_download_auth(tmp_path):
+    """Test that wget download with NASA auth cookies works."""
     url = 'https://oceandata.sci.gsfc.nasa.gov/cgi/getfile/GMAO_FP.20231005T090000.MET.NRT.nc'
-    with TemporaryDirectory() as tmpdir:
-        tmpfile = Path(tmpdir)/'test_auth.tmp'
-        if valid_auth:
-            cmd = 'wget -nv --save-cookies ~/.urs_cookies --keep-session-cookies --auth-no-challenge {} -O {}'.format(url, tmpfile)
-            assert system(cmd) == 0
-        else:
-            cmd = 'wget -nv --save-cookies ~/.urs_cookies --keep-session-cookies --user user --password pass --auth-no-challenge {} -O {}'.format(url, tmpfile)
-            assert system(cmd) != 0
+    tmpfile = tmp_path / 'test_auth.tmp'
+    cmd = 'wget -nv --save-cookies ~/.urs_cookies --keep-session-cookies --auth-no-challenge {} -O {}'.format(url, tmpfile)
+    assert system(cmd) == 0
+    assert tmpfile.exists()

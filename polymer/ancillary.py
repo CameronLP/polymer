@@ -31,6 +31,8 @@ forecast_resources = [
     #               for d in round_date(date, 3)]
     lambda date: [('GMAO_FP.%Y%m%dT%H0000.MET.NRT.nc', d)
                   for d in round_date(date, 3)],
+    lambda date: [('GMAO_IT.%Y%m%dT%H0000.MET.NRT.nc', d)
+                  for d in round_date(date, 3)],
 ]
 
 default_met_resources = [
