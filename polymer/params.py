@@ -179,6 +179,11 @@ class Params(object):
         #   * apply both (3)
         self.normalize = 3
 
+        # geometry normalization angles (used when normalize & 1)
+        self.sza0 = 0.0    # solar zenith angle for normalization
+        self.vza0 = 0.0    # viewer zenith angle for normalization
+        self.raa0 = 0.0    # relative azimuth angle for normalization
+
         self.Rprime_consistency = True
 
         # water model
@@ -1044,6 +1049,9 @@ class Params(object):
             self.weights_oc = self.weights_oc(self.bands_oc)
 
         # number of terms in the model
-        self.Ncoef = self.atm_model.count(',')+1
+        if self.atm_model == 'none':
+            self.Ncoef = 0
+        else:
+            self.Ncoef = self.atm_model.count(',')+1
 
 

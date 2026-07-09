@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Literal, Optional, Union
 
+import numpy as np
 import xarray as xr
 from core.interpolate import Nearest, interp
 from core.save import to_netcdf
@@ -245,6 +246,85 @@ def run_polymer_dataset(ds: xr.Dataset, **kwargs) -> xr.Dataset:
                     absorption=params.absorption)
 
     PolymerSolver(watermodel, params).apply(ds)
+
+    return ds
+
+
+def normalize_water_reflectance(
+    ds: xr.Dataset,
+    *,
+    wind_speed: float = 5.0,
+    sza0: float = 0.0,
+    vza0: float = 0.0,
+    raa0: float = 0.0,
+    **kwargs,
+) -> xr.Dataset:
+    """
+    Normalize water-leaving reflectance spectra using PolymerSolver.
+
+    This function wraps PolymerSolver with atm_model='none', meaning no atmospheric
+    correction is performed. The input water reflectance spectrum should be provided
+    as "Rprime" in the input dataset.
+    The solver will fit the water model parameters and return the normalized rho_w.
+
+    Arguments:
+        ds: xarray Dataset with at least these variables:
+            - Rprime (y, x, bands): input water reflectance
+            - wav (bands): wavelengths in nm
+            - sza (y, x): solar zenith angle in degrees
+            - vza (y, x): viewer zenith angle in degrees
+            - raa (y, x): relative azimuth angle in degrees
+            - horizontal_wind (y, x): wind speed in m/s (optional, defaults to wind_speed)
+        wind_speed: default wind speed in m/s if horizontal_wind is not in ds
+        sza0: solar zenith angle for geometry normalization (degrees, default 0.0)
+        vza0: viewer zenith angle for geometry normalization (degrees, default 0.0)
+        raa0: relative azimuth angle for geometry normalization (degrees, default 0.0)
+
+    Returns:
+        The input dataset augmented with rho_w, logchl, logfb and updated flags.
+    """
+    bands = ds.bands.values.tolist()
+
+    params = Params(
+        sensor='default',
+        atm_model='none',
+        bands_corr=bands,
+        bands_oc=bands,
+        bands_rw=bands,
+        sza0=sza0,
+        vza0=vza0,
+        raa0=raa0,
+        **kwargs,
+    )
+    params.finalize()
+
+    # Create dummy variables needed by PolymerSolver
+    if 'cwav' not in ds:
+        ds = ds.assign(cwav=ds.wav)
+    if 'Rprime_noglint' not in ds:
+        ds = ds.assign(Rprime_noglint=ds.Rprime)
+    if 'rho_r' not in ds:
+        ds = ds.assign(rho_r=xr.zeros_like(ds.Rprime))
+    if 'Tmol' not in ds:
+        ds = ds.assign(Tmol=xr.ones_like(ds.Rprime))
+    if 'Rgli' not in ds:
+        ds = ds.assign(Rgli=xr.zeros_like(ds.sza))
+    if 'Rnir' not in ds:
+        ds = ds.assign(Rnir=ds.Rprime.isel(bands=-1))
+    if 'horizontal_wind' not in ds:
+        ds = ds.assign(horizontal_wind=xr.full_like(ds.sza, float(wind_speed)))
+    if 'mus' not in ds:
+        ds = ds.assign(mus=np.cos(np.radians(ds.sza)).astype('float32'))
+    if 'muv' not in ds:
+        ds = ds.assign(muv=np.cos(np.radians(ds.vza)).astype('float32'))
+    if 'flags' not in ds:
+        ds = ds.assign(flags=xr.zeros_like(ds.sza, dtype='uint16'))
+
+    watermodel = ParkRuddick(
+        params.dir_common,
+    )
+    solver = PolymerSolver(watermodel, params)
+    solver.apply(ds)
 
     return ds
 

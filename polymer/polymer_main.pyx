@@ -60,6 +60,9 @@ cdef class PolymerSolver:
     cdef int L2_FLAG_ANOMALY_RWMOD_BLUE
     cdef object params
     cdef int normalize
+    cdef float sza0
+    cdef float vza0
+    cdef float raa0
     cdef int force_initialization
     cdef int reinit_rw_neg
     cdef int[:] dbg_pt
@@ -95,6 +98,9 @@ cdef class PolymerSolver:
         self.params = params
         self.uncertainties = params.uncertainties
         self.normalize = params.normalize
+        self.sza0 = params.sza0
+        self.vza0 = params.vza0
+        self.raa0 = params.raa0
         self.force_initialization = params.force_initialization
         self.reinit_rw_neg = params.reinit_rw_neg
         self.dbg_pt = np.array(params.dbg_pt, dtype='int32')
@@ -195,28 +201,33 @@ cdef class PolymerSolver:
 
         # Atmospheric model calculation
         # at bands_corr
-        A = atm_func(wav,
-                     Rmol,
-                     Tmol,
-                     Rgli,
-                     air_mass,
-                     self.params,
-                     self.params.bands_corr)
-    
-        if self.params.weights_corr is None:
-            pA = pseudoinverse(A)
-        else:
-            pA = weighted_pseudoinverse(
-                    A, np.diag(self.params.weights_corr).astype('float32'))
+        if self.Ncoef > 0:
+            A = atm_func(wav,
+                         Rmol,
+                         Tmol,
+                         Rgli,
+                         air_mass,
+                         self.params,
+                         self.params.bands_corr)
 
-        # the model coefficients, at bands_read
-        A = atm_func(wav,
-                     Rmol,
-                     Tmol,
-                     Rgli,
-                     air_mass,
-                     self.params,
-                     self.params.bands_read())
+            if self.params.weights_corr is None:
+                pA = pseudoinverse(A)
+            else:
+                pA = weighted_pseudoinverse(
+                        A, np.diag(self.params.weights_corr).astype('float32'))
+
+            # the model coefficients, at bands_read
+            A = atm_func(wav,
+                         Rmol,
+                         Tmol,
+                         Rgli,
+                         air_mass,
+                         self.params,
+                         self.params.bands_read())
+        else:
+            # No atmospheric model: Rprime is pre-computed
+            A = np.zeros((Nx, Ny, self.N_bands_read, 0), dtype='float32')
+            pA = np.zeros((Nx, Ny, 0, 0), dtype='float32')
 
         #
         # pixel loop
@@ -368,9 +379,9 @@ cdef class PolymerSolver:
 
                     if self.normalize & 1:
                         # activate geometry normalization
-                        sza0 = 0.
-                        vza0 = 0.
-                        raa0 = 0.
+                        sza0 = self.sza0
+                        vza0 = self.vza0
+                        raa0 = self.raa0
                     else:
                         sza0 = sza[i,j]
                         vza0 = vza[i,j]

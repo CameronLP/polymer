@@ -38,7 +38,12 @@ def atm_func(
     shp = Rgli.shape
     assert wav.shape[-1] == len(params.bands_read())
     Ncoef = params.Ncoef   # number of polynomial coefficients
-    assert Ncoef > 0
+    assert Ncoef >= 0
+
+    # No atmospheric model: for water reflectance normalization, no atmospheric fitting
+    if params.atm_model == 'none':
+        A = np.zeros((shp[0], shp[1], Nlam, 0), dtype='float32')
+        return A
 
     # convert the memoryviews to numpy arrays
     wav = np.array(wav)
