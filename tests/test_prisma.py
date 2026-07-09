@@ -17,29 +17,20 @@ from polymer.ancillary_era5 import Ancillary_ERA5
 from polymer.level1_prisma import Level1_PRISMA
 from polymer.level2_nc import Level2_NETCDF
 from polymer.main import run_atm_corr
+from tests.test_samples import sample
 from polymer import level2
 
-# lidt of test cases
-list_prisma_products = [
-    {'filename': '/archive2/proj/ACIX3/202304/Garda/PRS_L1_STD_OFFL_20210721102700_20210721102705_0001.he5', # noqa
+@pytest.fixture(params=[
+    {'key': 'LEVEL1_SAMPLE_PRISMA',
      'roi': {'sline': 150, 'eline': 550, 'scol': 150, 'ecol': 220},
      'pix': [200, 500],
      },
-    {'filename': '/archive2/proj/ACIX3/202304/Garda/PRS_L1_STD_OFFL_20210917102722_20210917102726_0001.he5', # noqa
-     'roi': {'sline': 350, 'eline': 550, 'scol': 0, 'ecol': 220},
-     'pix': [200, 500],
-     },
-    {'filename': '/archive2/proj/ACIX3/202304/Geneve/PRS_L1_STD_OFFL_20200304104022_20200304104027_0001.he5', # noqa
-     'roi': {'sline': 400, 'eline': 600, 'scol': 450, 'ecol': 650},
-     'pix': [550, 500],
-     },
-    {'filename': '/archive2/proj/ACIX3/202304/Geneve/PRS_L1_STD_OFFL_20200530104010_20200530104014_0001.he5', # noqa
-     'roi': {'sline': 400, 'eline': 600, 'scol': 450, 'ecol': 650},
-     'pix': [550, 500],
-     },
-]
+])
+def level1(request):
+    param = request.param
+    param['filename'] = sample(param['key'])
+    return param
 
-@pytest.mark.parametrize('level1', list_prisma_products)
 def test_prisma_browse(level1, request):
     l1 = Path(level1['filename'])
     l2 = run_atm_corr(
@@ -63,7 +54,6 @@ def test_prisma_browse(level1, request):
     conftest.savefig(request)
     
 
-@pytest.mark.parametrize('level1', list_prisma_products)
 def test_prisma(level1, request):
     l1 = Path(level1['filename'])
 
@@ -115,7 +105,6 @@ def test_prisma(level1, request):
     plt.grid(True)
     plt.title('spectrum visualization')
     conftest.savefig(request)
-    
     
 
 # TODO: check results identical with different offsets
