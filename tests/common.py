@@ -51,9 +51,8 @@ def run_v5(testcase, **kwargs) -> xr.Dataset:
                 dir_out=tmpdir,
                 roi=testcase["roi"],
                 split_bands=False,
+                outputs_tags=["level2", "debug"],
                 verbose=False,
-                output_datasets=default_output_datasets+additional_output_datasets,
-                v1_compat=True,
                 **kwargs,
             )
         ds = load_polymer(file_v5)

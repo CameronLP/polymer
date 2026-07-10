@@ -39,7 +39,7 @@ cdef int testflag(unsigned short[:,:] bitmask, int i, int j, int flag):
     return bitmask[i,j] & flag != 0
 
 
-cdef class PolymerSolver:
+cdef class PolymerSolverCy:
 
     cdef PolymerMinimizer f
     cdef int Nparams
@@ -121,8 +121,8 @@ cdef class PolymerSolver:
               float[:,:] Rnir,
               float[:,:] Rgli,
               float[:,:,:] Tmol,
-              float[:,:,:] wav,
-              float[:] cwav,
+              float[:,:,:] cwav,
+              float[:] wav_norm,
               float[:,:] sza,
               float[:,:] vza,
               float[:,:] raa,
@@ -197,12 +197,12 @@ cdef class PolymerSolver:
         if self.initial_points.size:
             Rwmod_fg = np.zeros((self.initial_points.shape[0], block_nbands),
                                 dtype='float32') + np.nan
-            self.init_first_guess(Rwmod_fg, cwav)
+            self.init_first_guess(Rwmod_fg, wav_norm)
 
         # Atmospheric model calculation
         # at bands_corr
         if self.Ncoef > 0:
-            A = atm_func(wav,
+            A = atm_func(cwav,
                          Rmol,
                          Tmol,
                          Rgli,
@@ -217,7 +217,7 @@ cdef class PolymerSolver:
                         A, np.diag(self.params.weights_corr).astype('float32'))
 
             # the model coefficients, at bands_read
-            A = atm_func(wav,
+            A = atm_func(cwav,
                          Rmol,
                          Tmol,
                          Rgli,
@@ -249,7 +249,7 @@ cdef class PolymerSolver:
                         Rprime_noglint[i,j,:],
                         A[i,j,:,:], pA[i,j,:,:],
                         Tmol[i,j,:],
-                        wav[i,j,:],
+                        cwav[i,j,:],
                         sza[i,j], vza[i,j], raa[i,j],
                         wind_speed[i,j]):
                     raiseflag(bitmask, i, j, self.L2_FLAG_EXCEPTION)
@@ -389,9 +389,9 @@ cdef class PolymerSolver:
 
                     if self.normalize & 2:
                         # activate wavelength normalization
-                        wav0 = cwav
+                        wav0 = wav_norm
                     else:
-                        wav0 = wav[i,j,:]
+                        wav0 = cwav[i,j,:]
 
                     # calculate model reflectance at nadir
                     self.f.init_pixel(
@@ -479,14 +479,14 @@ cdef class PolymerSolver:
 
     cdef int init_first_guess(self,
                               float[:,:] Rwmod_fg,
-                              float[:] cwav):
+                              float[:] wav_norm):
         """
         Initialize reflectances for first guess
 
         Rwmod_fg: reflectance spectra [Npts, nbands]
         """
         cdef int i, j
-        self.f.w.init_pixel(cwav, 0, 0, 0, 5)
+        self.f.w.init_pixel(wav_norm, 0, 0, 0, 5)
         for i in range(Rwmod_fg.shape[0]):
             self.f.Rwmod = self.f.w.calc_rho(self.initial_points[i,:])
             for j in range(Rwmod_fg.shape[1]):
@@ -630,7 +630,26 @@ cdef class PolymerSolver:
             Rtoa_var = ds.Rtoa_var
         else:
             Rtoa_var = xr.zeros_like(ds.Rprime)
-        wav = ds.wav.broadcast_like(ds.Rprime).astype('float32')
+        
+        # Initialize wavelength
+        # 1) central wavelength (per-pixel)
+        cwav = ds.cwav.broadcast_like(ds.Rprime).astype('float32')
+        # 2) normalization wavelength
+        if 'wav_norm' in self.params.asdict():
+            # Look up normalization wavelengths for the dataset's actual bands
+            wav_norm_dict = self.params.wav_norm
+            bands = ds.bands.values.tolist()
+            wav_norm = xr.DataArray(
+                np.array(
+                    [wav_norm_dict[b] for b in bands],
+                    dtype='float32',
+                ),
+                dims=['bands'],
+                coords={'bands': bands},
+            )
+        else:
+            assert ds.cwav.ndim == 1
+            wav_norm = ds.cwav.astype('float32')
 
         ret = xr.apply_ufunc(
             self.loop,
@@ -640,8 +659,8 @@ cdef class PolymerSolver:
             ds.Rnir,
             ds.Rgli,
             ds.Tmol,
-            wav,
-            ds.cwav,
+            cwav,
+            wav_norm,
             ds.sza,
             ds.vza,
             ds.raa,

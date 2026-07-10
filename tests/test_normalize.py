@@ -51,6 +51,11 @@ def test_normalize(request):
             ws=ws,
         )
 
+    # Add Gaussian noise to simulate measurement uncertainty
+    noise_std = 5e-4
+    noise = np.random.default_rng(42).normal(0, noise_std, rho_w_stack.shape).astype('float32')
+    rho_w_stack = np.clip(rho_w_stack + noise, 0, None)
+
     # Build xarray Dataset with 3 pixels along "x"
     ds = xr.Dataset({
         'Rprime': xr.DataArray(

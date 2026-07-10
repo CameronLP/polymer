@@ -201,11 +201,11 @@ def test_browse(request, testcase):
     conftest.savefig(request)
 
     # Spectrum
-    ds.Rtoa.sel(testcase['roi']).sel(testcase['px']).plot()
+    ds.Rtoa.sel(testcase['roi']).isel(testcase['px']).plot()
     plt.grid()
     conftest.savefig(request)
     with xr.set_options(display_max_rows=150):
-        print(ds.sel(testcase['roi']).sel(testcase['px']).compute())
+        print(ds.sel(testcase['roi']).isel(testcase['px']).compute())
 
 
 def test_v4(request, testcase):

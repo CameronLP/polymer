@@ -3,23 +3,27 @@ from typing import Dict, Literal, Optional, Union
 
 import numpy as np
 import xarray as xr
-from core.interpolate import Nearest, interp
 from core.save import to_netcdf
-from core.tools import split, xrcrop
+from core.tools import split
+from core.process.blockwise import BlockProcessor, CompoundProcessor
+from core.tools import Var
 from dask import config as dask_config
 from eoread.autodetect import Level1
-from eoread.eo import init_geometry, init_Rtoa, raiseflag
-from eoread.gsw import GSW
-from eotools.apply_ancillary import apply_ancillary
+from eoread.eo import init_Rtoa
+from eoread.flags import FlagsInit, GenericFlags
+from eotools.apply_ancillary import ApplyAncillary
 from eotools.cm.basic import Cloud_mask
 from eotools.gaseous_correction import Gaseous_correction
-from eotools.glint import apply_glitter
-from eotools.rayleigh_legacy import Rayleigh_correction
+from eotools.glint import CalcSunGlint
+from eotools.rayleigh import RayleighCorrection
 from eotools.srf import get_SRF, integrate_srf, rename
+from eotools.water import GSWLandMask
+from eotools.dem import DEM
+from eotools.geometry import InitGeometry
 
 from polymer.common import L2FLAGS
-from polymer.polymer_main import PolymerSolver
-from polymer.uncertainties import init_uncertainties
+from polymer.polymer_solver import PolymerSolver
+from polymer.uncertainties import InitUncertainties
 from polymer.water import ParkRuddick
 from polymer.params import Params
 
@@ -47,14 +51,16 @@ def run_polymer(
     level1: Union[Path, str, xr.Dataset],
     *,
     roi: Optional[Dict] = None,
-    file_out: Optional[Path|str] = None,
+    file_out: Optional[Path | str] = None,
     ext: str = ".polymer.nc",
-    dir_out: Optional[Path|str] = None,
-    scheduler: str = "sync",
+    dir_out: Optional[Path | str] = None,
+    scheduler: Literal["sync", "threads", "processes"] = "sync",
     split_bands: bool = True,
-    output_datasets: Optional[list] = None,
     if_exists: Literal["skip", "overwrite", "backup", "error"] = "error",
-    verbose: bool=True,
+    verbose: bool = True,
+    outputs: Literal["created_modified", "all", "tags", "named"] = "tags",
+    outputs_tags: Optional[list[str]] = ["level2"],
+    outputs_names: Optional[list[str]] = None,
     **kwargs,
 ) -> Path:
     """
@@ -69,9 +75,10 @@ def run_polymer(
             two next arguments to determine the output file.
         ext (str): output filename extension
         dir_out (Path, optional): path to the output directory
-        scheduler (str):
-            "sync" for single-threaded
-            "threads" for parallel processing (multiple threads)
+        scheduler ({"sync", "threads", "processes"}): dask scheduler to use
+            - "sync": single-threaded, synchronous execution
+            - "threads": parallel processing with multiple threads
+            - "processes": parallel processing with multiple processes
         split_bands (bool): whether to split the output spectral bands into individual
             variables. Example: rho_w -> [rho_w_412, rho_w_443, ...]
         output_datasets: list of datasets to write to the output product.
@@ -103,18 +110,14 @@ def run_polymer(
                       for k, v in roi.items()})
 
     # Run polymer main function
-    ds = run_polymer_dataset(ds, **kwargs)
-
-    # bands selection
-    if output_datasets is None:
-        output_datasets = default_output_datasets
-    elif output_datasets == []:
-        # print all available datasets and exit
-        with xr.set_options(display_max_rows=150):
-            print(ds)
-        raise ValueError('Please provide a non-empty list of output_datasets. '
-                         'The list of available datasets has been printed.')
-    ds = ds[output_datasets]
+    ds = run_polymer_dataset(
+        ds,
+        scheduler=scheduler,
+        outputs=outputs,
+        outputs_tags=outputs_tags,
+        outputs_names=outputs_names,
+        **kwargs,
+    )
 
     if split_bands:
         ds = split(ds, 'bands')
@@ -125,37 +128,29 @@ def run_polymer(
     return Path(file_out)
 
 
-def init(ds: xr.Dataset, srf: xr.Dataset, params):
+def init(ds: xr.Dataset, srf: xr.Dataset, params) -> xr.Dataset:
     """
     Initialize dataset `ds` for use with Polymer
     (in place)
     """
     init_Rtoa(ds)
-    init_geometry(ds, scat_angle=True)
 
-    apply_ancillary(
-        ds,
-        params.ancillary,
-        {
-                'horizontal_wind': 'm/s',
-                'sea_level_pressure': 'hectopascals',
-                'total_column_ozone': 'Dobson',
-        })
-    if 'altitude' not in ds:   # FIXME:
-        ds['altitude'] = xr.zeros_like(ds.latitude)
+    # Rename bands names if "bands_l1" is defined in params
+    if hasattr(params, 'bands_l1') and params.bands_l1 is not None:
+        assert len(params.bands_l1) == len(ds.bands)
+        ds = ds.assign_coords(
+            bands=params.bands_l1,
+        )
 
     # Central wavelength
-    if 'wav' not in ds:
+    if 'cwav' not in ds:
         assert len(srf) > 0
-        ds['wav'] = xr.DataArray(
+        ds['cwav'] = xr.DataArray(
             list(integrate_srf(srf, lambda x: x).values()),
             dims=['bands'],
             ).astype('float32')
-    if ds.wav.dtype == 'float64':
-        ds['wav'] = ds.wav.astype('float32')
-    if 'cwav' not in ds:
-        ds['cwav'] = ds.wav
-        assert len(ds.wav.dims) == 1
+    if ds.cwav.dtype == 'float64':
+        ds['cwav'] = ds.cwav.astype('float32')
     
     # initialize bands_corr, bands_oc, bands_rw if they are defined from a callable
     if not isinstance(params.bands_corr, list):
@@ -173,6 +168,8 @@ def init(ds: xr.Dataset, srf: xr.Dataset, params):
     # Store the params in the object attributes
     ds.attrs.update(params.items())
 
+    return ds
+
 
 def compat(ds: xr.Dataset) -> xr.Dataset:
     '''
@@ -186,13 +183,56 @@ def compat(ds: xr.Dataset) -> xr.Dataset:
     for varname in ds:
         if ds[varname].dtype == 'float64':
             ds[varname] = ds[varname].astype('float32')
+    
+    if ds.platform.startswith('Sentinel-3') and ds.sensor == 'OLCI':
+        # Consider moving global "Central wavelength" to attributes
+        if 'wav' in ds:
+            if 'cwav' in ds:
+                ds = ds.drop_vars('cwav')
+            ds = ds.rename(wav = 'cwav')
+
+    assert 'wav' not in ds
         
     return ds
 
 
-def run_polymer_dataset(ds: xr.Dataset, **kwargs) -> xr.Dataset:
+def run_polymer_dataset(
+    ds: xr.Dataset,
+    *,
+    scheduler: Literal["sync", "threads", "processes"] = "sync",
+    outputs: Literal["created_modified", "all", "tags", "named"] = "created_modified",
+    outputs_tags: Optional[list[str]] = None,
+    outputs_names: Optional[list[str]] = None,
+    **kwargs,
+) -> xr.Dataset:
     """
     Polymer: main function at dataset level
+
+    Arguments:
+        ds: Input Level-1 dataset.
+        scheduler ({"sync", "threads", "processes"}): dask scheduler to use
+            - "sync": single-threaded, synchronous execution
+            - "threads": parallel processing with multiple threads
+            - "processes": parallel processing with multiple processes
+        outputs ({"created_modified", "all", "tags", "named"}):
+            How to select output variables for the CompoundProcessor.
+            - "created_modified": variables created or modified by the processors
+            - "all": all variables (created, modified, and input)
+            - "tags": variables with tags matching outputs_tags
+            - "named": variables with names matching outputs_names
+        outputs_tags: list of tags to filter output variables when outputs="tags".
+            Available tags:
+            - "level2": latitude, longitude, flags, rho_w, Rnir, Rgli, SPM
+            - "ancillary": total_column_ozone, altitude, horizontal_wind, sea_level_pressure
+            - "geometry": raa, sza, vza
+            - "debug": cwav, Rtoa, rho_gc, rho_r, rho_rg, t_d, rho_rc,
+                       logchl, logfb, niter, Ratm, Rwmod, eps,
+                       total_column_ozone, altitude, horizontal_wind, sea_level_pressure
+        outputs_names: list of variable names to include when outputs="named".
+        **kwargs: additional arguments passed to Params.
+
+    Returns:
+        The processed dataset with Level-2 products.
     """
     ds = compat(ds)
 
@@ -208,46 +248,104 @@ def run_polymer_dataset(ds: xr.Dataset, **kwargs) -> xr.Dataset:
         # empty dictionary when srfs are not provided
         srf = xr.Dataset()
 
-    init(ds, srf, params)
-    
-    apply_calib(ds, 'Rtoa', params.calib)
-
+    ds = init(ds, srf, params)
     ds = ds.sel(bands=params.bands_read()).chunk(bands=-1)
 
+    #
+    # Build list of processors
+    #
+    processors = []
+
+    # Geometry variable initialization
+    processors.append(InitGeometry(ds, calc_air_mass=True, calc_scat_angle=True))
+    
+    # Flags initialization
+    processors.append(
+        FlagsInit(
+            flags={
+                GenericFlags.LAND: 1 << 0,
+                GenericFlags.L1_INVALID: 1 << 2,
+            },
+            dtype="uint16",
+            flag_reader=ds.attrs["_flag_reader"],
+            flag_reader_kwargs=ds.attrs.get("_flag_reader_kwargs", {}),
+            strict=False,
+        )
+    )
+    
+    # Set ancillary data: altitude
+    if params.dem is not None:
+        processors.append(DEM(ds, source=params.dem))
+    else:
+        assert "altitude" in ds
+
+    # Andillary data: meteo/ozone
+    if params.ancillary is not None:
+        processors.append(ApplyAncillary(ds, params.ancillary))
+    
+    # Vicarious calibration
+    processors.append(ApplyCalib(ds, 'Rtoa', params.calib))
+    
+    # Uncertainties initialization
+    processors.append(InitUncertainties(ds, params))
+    
+    # Land mask
     if 'gsw_agg' in kwargs:
-        apply_landmask(ds, **kwargs)
+        processors.append(GSWLandMask(l1=ds, agg=kwargs['gsw_agg']))
+    
+    # Gaseous correction
+    processors.append(
+        Gaseous_correction(ds, srf, input_var="Rtoa", **dict(params.items()))
+    )
+    
+    # Rayleigh correction
+    processors.append(RayleighCorrection())
+    
+    # Rename RayleighCorrection output to Polymer naming conventions
+    processors.append(RenameRayleigh(params.band_cloudmask))
+    
+    # Cloud mask
+    processors.append(
+        Cloud_mask(
+            cm_input_var="Rprime",
+            cm_band_nir=params.band_cloudmask,
+            cm_flag_value=L2FLAGS["CLOUD_BASE"],
+            cm_flag_name="CLOUD_BASE",
+        )
+    )
+    
+    # Sun glint calculation
+    processors.append(CalcSunGlint())
 
-    init_uncertainties(ds, params)
-
-    Gaseous_correction(ds, srf, input_var="Rtoa", **dict(params.items())).apply(
-        method="map_blocks"
+    # Polymer solver — pass class + kwargs so each worker process can
+    # reconstruct its own fresh Cython instances.
+    processors.append(
+        PolymerSolver(
+            watermodel_cls=ParkRuddick,
+            watermodel_kwargs={
+                "directory": params.dir_common,
+                "bbopt": params.bbopt,
+                "min_abs": params.min_abs,
+                "absorption": params.absorption,
+            },
+            params=params,
+        )
     )
 
-    Rayleigh_correction(
-        ds,
-        bitmask_invalid=params.BITMASK_INVALID,
-    ).apply(method="map_blocks")
+    # Tag Level-2 output variables for selection
+    processors.append(TagOutputs(params))
 
-    ds['Rnir'] = ds['Rprime_noglint'].sel(bands=params.band_cloudmask)
+    # Apply all processors to the input dataset (lazily)
+    compound = CompoundProcessor(
+        processors,
+        outputs=outputs,
+        outputs_tags=outputs_tags,
+        outputs_names=outputs_names,
+    )
+    with dask_config.set(scheduler=scheduler):
+        res = compound.map_blocks(ds)
 
-    Cloud_mask(ds,
-               cm_input_var="Rprime",
-               cm_band_nir=params.band_cloudmask,
-               cm_flag_value=L2FLAGS["CLOUD_BASE"],
-               cm_flag_name="CLOUD_BASE",
-               ).apply(method='map_blocks')
-
-    apply_glitter(ds)
-
-    watermodel = ParkRuddick(
-                    params.dir_common,
-                    bbopt=params.bbopt,
-                    min_abs=params.min_abs,
-                    absorption=params.absorption)
-
-    PolymerSolver(watermodel, params).apply(ds)
-
-    return ds
+    return res
 
 
 def normalize_water_reflectance(
@@ -320,46 +418,126 @@ def normalize_water_reflectance(
     if 'flags' not in ds:
         ds = ds.assign(flags=xr.zeros_like(ds.sza, dtype='uint16'))
 
-    watermodel = ParkRuddick(
-        params.dir_common,
+    solver = PolymerSolver(
+        watermodel_cls=ParkRuddick,
+        watermodel_kwargs={'directory': params.dir_common},
+        params=params,
     )
-    solver = PolymerSolver(watermodel, params)
-    solver.apply(ds)
+    solver.process_block(ds)
 
     return ds
 
 
-def apply_landmask(ds: xr.Dataset, gsw_agg: int, **kwargs):
-    gsw = GSW(agg=gsw_agg)
-
-    # Crop gsw to the current location for optimization
-    gsw = xrcrop(
-        gsw,
-        latitude=ds.latitude,
-        longitude=ds.longitude,
-    )
-
-    # Compute gsw for interp
-    gsw = gsw.compute()
-
-    # Apply interp for nearest neighbour in lat/lon
-    landmask = (
-        interp(
-            gsw,
-            latitude=Nearest(ds.latitude),
-            longitude=Nearest(ds.longitude),
-        )
-        < 50
-    )
-
-    raiseflag(ds.flags, 'LAND', 1, landmask)
-
-
-def apply_calib(ds: xr.Dataset, varname: str, calib: dict|None):
+class RenameRayleigh(BlockProcessor):
     """
-    Apply calibration coefficients `calib` to variable `varname` (in place)
+    Rename RayleighCorrection output variables to Polymer naming conventions.
+    
+    Maps:
+        - rho_rc (Rayleigh + glint corrected) -> Rprime
+        - rho_gc - rho_r (Rayleigh only corrected) -> Rprime_noglint
+        - t_d (total transmittance) -> Tmol
+        - Rprime_noglint at NIR band -> Rnir
     """
-    if calib is not None:
-        coeff = xr.DataArray([calib[x] for x in ds.bands.data], dims=['bands'])
-        ds[varname] = ds[varname] * coeff
+    def __init__(self, band_cloudmask: int):
+        self.band_cloudmask = band_cloudmask
+
+    def input_vars(self) -> list[Var]:
+        return [
+            Var('rho_rc'),
+            Var('rho_gc'),
+            Var('rho_r'),
+            Var('t_d'),
+        ]
+
+    def created_vars(self) -> list[Var]:
+        return [
+            Var('Rprime', dtype='float32', dims_like='rho_rc'),
+            Var('Rprime_noglint', dtype='float32', dims_like='rho_gc'),
+            Var('Tmol', dtype='float32', dims_like='t_d'),
+            Var('Rnir', dtype='float32', dims=('y', 'x')),
+        ]
+
+    def process_block(self, block: xr.Dataset) -> None:
+        block['Rprime'] = block['rho_rc'].astype('float32')
+        block['Rprime_noglint'] = (block['rho_gc'] - block['rho_r']).astype('float32')
+        block['Tmol'] = block['t_d'].astype('float32')
+        block['Rnir'] = block['Rprime_noglint'].sel(bands=self.band_cloudmask).astype('float32')
+
+
+class TagOutputs(BlockProcessor):
+    """
+    Tag Level-2 output variables for selection.
+
+    Declares a fixed set of variables with tags=["level2"] so they can be
+    selected using outputs="tags" and outputs_tags=["level2"] in CompoundProcessor.
+
+    Tagged variables are: latitude, longitude, flags, rho_w.
+
+    Variables are declared via modified_vars, which merges with created_vars
+    from other processors through CompoundProcessor's merge logic.
+    """
+    def __init__(self, params):
+        self.tags = {
+            "latitude": ["level2"],
+            "longitude": ["level2"],
+            "flags": ["level2"],
+            "rho_w": ["level2"],
+            "total_column_ozone": ["ancillary", "debug"],
+            "altitude": ["ancillary", "debug"],
+            "horizontal_wind": ["ancillary", "debug"],
+            "sea_level_pressure": ["ancillary", "debug"],
+            "raa": ["geometry"],
+            "sza": ["geometry"],
+            "vza": ["geometry"],
+            "cwav": ["level2", "debug"],
+            "Rtoa": ["debug"],
+            "rho_gc": ["debug"],
+            "rho_r": ["debug"],
+            "rho_rg": ["debug"],
+            "t_d": ["debug"],
+            "rho_rc": ["debug"],
+            "Rnir": ["level2"],
+            "Rgli": ["level2"],
+            "logchl": ["debug"],
+            "logfb": ["debug"],
+            "SPM": ["level2"],
+            "niter": ["debug"],
+            "Ratm": ["debug"],
+            "Rwmod": ["debug"],
+            "eps": ["debug"],
+        }
+        if params.uncertainties:
+            self.tags["rho_w_unc"] = ["level2"]
+            self.tags["Rtoa_var"] = ["debug"]
+
+    def modified_vars(self) -> list[Var]:
+        return [Var(varname, tags=self.tags[varname]) for varname in self.tags]
+
+    def process_block(self, block: xr.Dataset) -> None:
+        pass
+
+
+class ApplyCalib(BlockProcessor):
+    """
+    Apply calibration coefficients to a variable (in place).
+    """
+    def __init__(self, ds: xr.Dataset, varname: str, calib: dict|None):
+        self.varname = varname
+        self.calib = calib
+        self.activate = calib is not None
+        if self.activate and calib is not None:
+            self.coeff = xr.DataArray(
+                [calib[x] for x in ds.bands.data],
+                dims=['bands'],
+                coords={'bands': ds.bands.data},
+            ).astype('float32')
+
+    def modified_vars(self) -> list[Var]:
+        if self.activate:
+            return [Var(self.varname)]
+        return []
+
+    def process_block(self, block: xr.Dataset) -> None:
+        coeff = self.coeff.sel(bands=block[self.varname].bands)
+        block[self.varname] = block[self.varname] * coeff
 

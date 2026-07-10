@@ -12,13 +12,24 @@ from polymer import level2
 from polymer.main import run_atm_corr
 from eoread import eo
 import xarray as xr
+from core.tests import pytest_utils
 from . import conftest
 from .test_samples import sample
+from .common import run_v5, plot
 
 
 @pytest.fixture
 def msi_product() -> Path:
     return sample('LEVEL1_SAMPLE_MSI')
+
+
+@pytest.fixture
+def testcase(msi_product) -> dict:
+    return {
+        "level1": msi_product,
+        "roi": {"x": slice(1000, 1400), "y": slice(500, 800)},
+        "px": {"x": 200, "y": 150},  # Within roi
+    }
 
 def test_instantiate(msi_product):
     print(Level1_MSI(msi_product))
@@ -71,5 +82,13 @@ def test_msi_spectrum(request, msi_product):
         plt.legend()
         conftest.savefig(request)
 
+
+@pytest.mark.parametrize("uncertainties", **pytest_utils.parametrize_dict({
+    'unc': True,
+    'nounc': False,
+}))
+def test_v5(request, uncertainties: bool, testcase: dict):
+    ds = run_v5(testcase, uncertainties=uncertainties)
+    plot(request, testcase, ds)
 
 

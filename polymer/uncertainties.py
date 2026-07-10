@@ -17,25 +17,36 @@ Definition of top of atmosphere uncertainties
 
 vardef = Var('Rtoa_var', dtype="float32", dims=('y', 'x', 'bands'))
 
-def init_uncertainties(ds: xr.Dataset, params):
+class InitUncertainties(CompoundProcessor):
     """
-    Initialize the input uncertainties
-
-    TODO: create BlockProcessors per-sensor for uncertainty initialization
+    Initialize the input uncertainties (Rtoa_var) from TOA radiance.
+    Computes F0 (solar irradiance) if not present, then applies
+    sensor-appropriate TOA uncertainty model.
     """
-
-    if 'F0' not in ds:
-        solar_data = solar_irradiance_lisird("1nm")
-        ds["F0"] = interp(solar_data.SSI, wavelength=Linear(ds.cwav))
-
-    if params.uncertainties:
-        if ("product_name" in ds.attrs) and (ds.attrs['product_name'].startswith('PACE_OCI')):
-            toa_unc = TOA_Uncertainties_PACE(ds)
-        else:
-            toa_unc = TOA_Uncertainties(ds, params)
+    def __init__(self, ds: xr.Dataset, params):
+        self.ds = ds
+        self.params = params
         
-        res = CompoundProcessor([Init_Ltoa(ds), toa_unc]).map_blocks(ds)
-        ds['Rtoa_var'] = res['Rtoa_var']
+        # Compute F0 (solar irradiance) if not already present
+        # F0 is a dataset-level 1D variable (bands only), added directly to ds
+        if 'F0' not in ds:
+            solar_data = solar_irradiance_lisird("1nm")
+            F0 = solar_data.SSI.compute(scheduler='sync')
+            ds["F0"] = interp(F0, wavelength=Linear(ds.cwav))
+
+        # Build processor chain
+        processors: list[BlockProcessor] = []
+
+        # Only compute uncertainties if enabled in params
+        if params.uncertainties:
+            processors.append(Init_Ltoa(ds))
+
+            if ("product_name" in ds.attrs) and (ds.attrs['product_name'].startswith('PACE_OCI')):
+                processors.append(TOA_Uncertainties_PACE(ds))
+            else:
+                processors.append(TOA_Uncertainties(ds, params))
+
+        super().__init__(processors)
 
 
 class Init_Ltoa(BlockProcessor):

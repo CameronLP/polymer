@@ -242,6 +242,10 @@ class Params(object):
         #     * a DEM_SRTM object
         self.altitude = 0
 
+        # DEM source for v5 processing
+        # can be: "zero", "gtopo30", "copernicus", or None (expect altitude in ds)
+        self.dem = None
+
         # BITMASK
         # (see common.py for bitmask definition)
         # no product (NaN) in case of...
@@ -352,9 +356,36 @@ class Params(object):
         define default parameters for Sentinel-3/OLCI
         '''
 
+        self.bands_l1   = [400,412,443,490,510,560,620,665,674,681,709,754,760,764,767,779,865,885,900,940,1020]
         self.bands_corr = [        443,490,510,560,620,665,            754,779,865]
         self.bands_oc   = [        443,490,510,560,620,665,            754,779,865]
         self.bands_rw   = [400,412,443,490,510,560,620,665,674,681,709,754,779,865,885,1020]
+        self.wav_norm = {
+            400: 400.664,
+            412: 412.076,
+            443: 443.183,
+            490: 490.713,
+            510: 510.639,
+            560: 560.579,
+            620: 620.632,
+            665: 665.3719,
+            674: 674.105,
+            681: 681.66,
+            709: 709.1799,
+            754: 754.2236,
+            760: 761.8164,
+            764: 764.9075,
+            767: 767.9734,
+            779: 779.2685,
+            865: 865.4625,
+            885: 884.3256,
+            900: 899.3162,
+            940: 939.02,
+            1020: 1015.9766,
+            1375: 1375.0,
+            1610: 1610.0,
+            2250: 2250.0,
+        }
 
         self.band_cloudmask = 865
 
@@ -438,6 +469,8 @@ class Params(object):
 
     def defaults_msi(self):
 
+        self.bands_l1 =   [443, 490, 560, 665, 705, 740, 783, 842, 865, 945, 1375, 1610, 2190]
+
         self.bands_corr = [443,490,560,665,705,740,783,    865,                  ]
         self.bands_oc   = [443,490,560,665,705,740,783,    865,                  ]
         self.bands_rw   = [443,490,560,665,705,740,783,842,865,         1610,    ]
@@ -514,6 +547,13 @@ class Params(object):
         }
         self.sigma_typ = {k: self.Ltyp[k]/self.snr[k]
                           for k in self.snr}
+
+        # DEM source
+        self.dem = "copernicus"
+
+        from eoread.ancillary_nasa import Ancillary_NASA
+
+        self.ancillary = Ancillary_NASA()
 
     def defaults_viirsn(self):
 
