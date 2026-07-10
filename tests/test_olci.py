@@ -22,26 +22,21 @@ from polymer.level2_nc import Level2_NETCDF
 from polymer.main import run_atm_corr
 from polymer.main_v5 import run_polymer, run_polymer_dataset
 from tests.common import diff, diff_flags, load_polymer, plot, run_v4, run_v5
+from tests.test_samples import sample
 
 from . import conftest
-
-olci_level1 = str(   # TODO: remove
-    getdir('DIR_DATA')/'sample_products'/
-    'S3A_OL_1_EFR____20160720T093221_20160720T093421_20171002T063740_0119_006_307______MR1_R_NT_002.SEN3')
 
 @pytest.fixture
 def testcase():
     # North sea
-    pid = 'S3A_OL_1_EFR____20160720T093226_20160720T093526_20241003T153523_0179_006_307_1980_MAR_R_NT_004.SEN3'
-    targetdir = mdir(getdir('DIR_SAMPLES')/'SENTINEL-3-OLCI')
-    target = targetdir / pid
-    if not target.exists():
-        from sand.eumdac import DownloadEumDAC
-        dl = DownloadEumDAC()
-        target = dl.download_file(pid, targetdir, api_collection=['EO:EUM:DAT:0885'])
-    assert target.exists()
+    level1 = Path(sample("LEVEL1_SAMPLE_OLCI"))
+    # Handle nested SEN3 structure where data files are in a subdirectory
+    # with the same name as the parent directory
+    nested = level1 / level1.name
+    if nested.is_dir():
+        level1 = nested
     return {
-        "level1": target/target.name,
+        "level1": level1,
         "roi": {"x": slice(0, 500), "y": slice(3500, 4000)},
         "px": {"x": 200, "y": 100},  # Within roi
     }

@@ -12,24 +12,13 @@ from polymer import level2
 from polymer.main import run_atm_corr
 from eoread import eo
 import xarray as xr
-from core import env
 from . import conftest
+from .test_samples import sample
 
-
-# @pytest.fixture(params=[
-#     # 'S2B_MSIL1C_20230425T100029_N0509_R122_T31PFN_20230425T123406',   # Ancillary data consistency (Kerstin, 20230509)
-#     # 'S2A_MSIL1C_20180328T144731_N0206_R139_T20PPC_20180328T212227',
-#     # 'S2A_MSIL1C_20220202T110251_N0400_R094_T31UDS_20220202T130715',
-#     # 'S2C_MSIL1C_20241213T101451_N9905_R022_T33TUL_20241213T121010',
-# ])
-# def msi_product(request):
-#     return download_S2_google(request.param, env.getdir("DIR_SAMPLES") / "MSI")
 
 @pytest.fixture
 def msi_product() -> Path:
-    # TODO: download using eoread.msi.get_sample
-    # S2A_MSIL1C_20220202T110251_N0510_R094_T31UDS_20240512T150505.SAFE
-    return env.getdir('LEVEL1_SAMPLE_MSI')
+    return sample('LEVEL1_SAMPLE_MSI')
 
 def test_instantiate(msi_product):
     print(Level1_MSI(msi_product))
