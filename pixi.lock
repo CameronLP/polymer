@@ -1,6 +1,11 @@
 version: 7
 platforms:
 - name: linux-64
+  virtual-packages:
+  - __unix=0=0
+  - __linux=4.18
+  - __glibc=2.28
+  - __archspec=0=x86_64
 environments:
   default:
     channels:
@@ -263,9 +268,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xyzservices-2025.1.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-3.21.0-pyhd8ed1ab_1.conda
-      - pypi: git+https://github.com/hygeos/core#4581222bfd6d47c2f88edb228319db6ad988a458
-      - pypi: git+https://github.com/hygeos/eoread#fce432e8245246b6d44e334d8b986f1858e28121
-      - pypi: git+https://github.com/hygeos/eotools#84beccd4d078fc3c6559dd69aebe303a851d4161
+      - pypi: git+https://github.com/hygeos/core#552e142aced6b7af70f13c32cee747350697011d
+      - pypi: git+https://github.com/hygeos/eoread#0892b312656ac28a3b9382db0de08f26f94ea76b
+      - pypi: git+https://github.com/hygeos/eotools#f5dc1f6d262b9d601be6537746ceb70a8946b624
       - pypi: git+https://github.com/hygeos/luts#1d6452697e65af60304cf49448a6ce336b498b69
       - pypi: https://files.pythonhosted.org/packages/0b/f7/85273299ab57117850cc0a936c64151171fac4da49bc6fba0dad984a7c5f/affine-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl
@@ -723,7 +728,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/contourpy?source=compressed-mapping
+  - pkg:pypi/contourpy?source=hash-mapping
   size: 297459
   timestamp: 1762525479137
 - conda: https://conda.anaconda.org/conda-forge/linux-64/cython-3.2.1-py313hc80a56d_0.conda
@@ -2188,7 +2193,7 @@ packages:
   license: PSF-2.0
   license_family: PSF
   purls:
-  - pkg:pypi/matplotlib?source=compressed-mapping
+  - pkg:pypi/matplotlib?source=hash-mapping
   size: 8405862
   timestamp: 1763055358671
 - conda: https://conda.anaconda.org/conda-forge/linux-64/minizip-4.0.7-h05a5f5f_3.conda
@@ -2409,7 +2414,7 @@ packages:
   - libjpeg-turbo >=3.1.0,<4.0a0
   license: HPND
   purls:
-  - pkg:pypi/pillow?source=compressed-mapping
+  - pkg:pypi/pillow?source=hash-mapping
   size: 1040440
   timestamp: 1761655794834
 - conda: https://conda.anaconda.org/conda-forge/linux-64/proj-9.7.0-hb72c0af_0.conda
@@ -2877,7 +2882,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/attrs?source=compressed-mapping
+  - pkg:pypi/attrs?source=hash-mapping
   size: 57181
   timestamp: 1741918625732
 - conda: https://conda.anaconda.org/conda-forge/noarch/bokeh-3.7.0-pyhd8ed1ab_0.conda
@@ -2944,7 +2949,7 @@ packages:
   - python >=3.9
   license: ISC
   purls:
-  - pkg:pypi/certifi?source=compressed-mapping
+  - pkg:pypi/certifi?source=hash-mapping
   size: 162721
   timestamp: 1739515973129
 - conda: https://conda.anaconda.org/conda-forge/noarch/cf-xarray-0.10.4-pyhd8ed1ab_0.conda
@@ -3164,7 +3169,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/fsspec?source=compressed-mapping
+  - pkg:pypi/fsspec?source=hash-mapping
   size: 142117
   timestamp: 1743437355974
 - conda: https://conda.anaconda.org/conda-forge/noarch/glymur-0.14.0.post2-pyhd8ed1ab_0.conda
@@ -3252,7 +3257,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/importlib-metadata?source=compressed-mapping
+  - pkg:pypi/importlib-metadata?source=hash-mapping
   size: 29141
   timestamp: 1737420302391
 - conda: https://conda.anaconda.org/conda-forge/noarch/iniconfig-2.0.0-pyhd8ed1ab_1.conda
@@ -3275,7 +3280,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/jinja2?source=compressed-mapping
+  - pkg:pypi/jinja2?source=hash-mapping
   size: 112714
   timestamp: 1741263433881
 - conda: https://conda.anaconda.org/conda-forge/noarch/kernel-headers_linux-64-3.10.0-he073ed8_18.conda
@@ -3443,7 +3448,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/platformdirs?source=compressed-mapping
+  - pkg:pypi/platformdirs?source=hash-mapping
   size: 23291
   timestamp: 1742485085457
 - conda: https://conda.anaconda.org/conda-forge/noarch/pluggy-1.5.0-pyhd8ed1ab_1.conda
@@ -3477,7 +3482,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pyparsing?source=compressed-mapping
+  - pkg:pypi/pyparsing?source=hash-mapping
   size: 95988
   timestamp: 1743089832359
 - conda: https://conda.anaconda.org/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
@@ -3572,7 +3577,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/tzdata?source=compressed-mapping
+  - pkg:pypi/tzdata?source=hash-mapping
   size: 144160
   timestamp: 1742745254292
 - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.13-8_cp313.conda
@@ -3777,7 +3782,7 @@ packages:
   - pint >=0.22
   license: Apache-2.0
   purls:
-  - pkg:pypi/xarray?source=compressed-mapping
+  - pkg:pypi/xarray?source=hash-mapping
   size: 854249
   timestamp: 1743444491374
 - conda: https://conda.anaconda.org/conda-forge/noarch/xlrd-1.2.0-pyh9f0ad1d_1.tar.bz2
@@ -3824,9 +3829,9 @@ packages:
   - pkg:pypi/zipp?source=hash-mapping
   size: 21809
   timestamp: 1732827613585
-- pypi: git+https://github.com/hygeos/core#4581222bfd6d47c2f88edb228319db6ad988a458
+- pypi: git+https://github.com/hygeos/core#552e142aced6b7af70f13c32cee747350697011d
   name: core
-  version: 1.2.2
+  version: 1.2.4
   requires_dist:
   - tqdm
   - xarray
@@ -3837,7 +3842,7 @@ packages:
   - lxml
   - scipy
   requires_python: '>=3.10'
-- pypi: git+https://github.com/hygeos/eoread#fce432e8245246b6d44e334d8b986f1858e28121
+- pypi: git+https://github.com/hygeos/eoread#0892b312656ac28a3b9382db0de08f26f94ea76b
   name: eoread
   version: 0.5.0
   requires_dist:
@@ -3849,9 +3854,9 @@ packages:
   - h5netcdf
   - h5py
   - netcdf4
-  - core @ git+https://github.com/hygeos/core ; extra == 'git'
+  - core @ git+https://github.com/hygeos/core.git ; extra == 'git'
   requires_python: <3.14
-- pypi: git+https://github.com/hygeos/eotools#84beccd4d078fc3c6559dd69aebe303a851d4161
+- pypi: git+https://github.com/hygeos/eotools#f5dc1f6d262b9d601be6537746ceb70a8946b624
   name: eotools
   version: 0.1.0
   requires_dist:
@@ -3859,10 +3864,10 @@ packages:
   - cf-xarray
   - pint-xarray
   - xlrd
-  - core @ git+https://github.com/hygeos/core ; extra == 'git'
-  - luts @ git+https://github.com/hygeos/luts ; extra == 'git'
-  - eoread @ git+https://github.com/hygeos/eoread ; extra == 'git'
-  - sand @ git+https://github.com/hygeos/sand ; extra == 'git'
+  - core @ git+https://github.com/hygeos/core.git ; extra == 'git'
+  - luts @ git+https://github.com/hygeos/luts.git ; extra == 'git'
+  - eoread @ git+https://github.com/hygeos/eoread.git ; extra == 'git'
+  - sand @ git+https://github.com/hygeos/sand.git ; extra == 'git'
   - gatiab ; extra == 'gatiab'
   requires_python: '>=3.11'
 - pypi: git+https://github.com/hygeos/luts#1d6452697e65af60304cf49448a6ce336b498b69
