@@ -120,7 +120,7 @@ class Level1_NETCDF(Level1_base):
                     900 , 940, 1020]
             self.band_index = dict((b, i+1) for (i, b) in enumerate(BANDS_OLCI))
 
-        elif title == 'S2_MSI_Level-1C':
+        elif 'S2_MSI_Level-1C' in title:
             self.sensor = 'MSI'
             self.varnames = {
                     'latitude': 'lat',
