@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, Literal, Optional, Union
 
@@ -8,6 +9,7 @@ from core.tools import split
 from core.process.blockwise import BlockProcessor, CompoundProcessor
 from core.tools import Var
 from dask import config as dask_config
+from dask.distributed import Client
 from eoread.autodetect import Level1
 from eoread.eo import init_Rtoa
 from eoread.flags import FlagsInit, GenericFlags
@@ -51,10 +53,11 @@ def run_polymer(
     level1: Union[Path, str, xr.Dataset],
     *,
     roi: Optional[Dict] = None,
+    chunks: Optional[Dict] | int = None,
     file_out: Optional[Path | str] = None,
     ext: str = ".polymer.nc",
     dir_out: Optional[Path | str] = None,
-    scheduler: Literal["sync", "threads", "processes"] = "sync",
+    multiprocessing: int | object = 0,
     split_bands: bool = True,
     if_exists: Literal["skip", "overwrite", "backup", "error"] = "error",
     verbose: bool = True,
@@ -71,14 +74,17 @@ def run_polymer(
         roi: definition of the region of interest. A dictionary such as
              {'x': slice(xmin, xmax, xstep), # or [xmin, xmax, xstep]
               'y': slice(ymin, ymax, ystep)}
+        chunks: chunking configuration to pass to the Level1 constructor.
+                Example: {'y': 200, 'x': 200}
         file_out (Path, optional): path to the output file. If not provided, use the
             two next arguments to determine the output file.
         ext (str): output filename extension
         dir_out (Path, optional): path to the output directory
-        scheduler ({"sync", "threads", "processes"}): dask scheduler to use
-            - "sync": single-threaded, synchronous execution
-            - "threads": parallel processing with multiple threads
-            - "processes": parallel processing with multiple processes
+        multiprocessing: dask execution mode
+            - 0: single-threaded, synchronous execution (default)
+            - -1: use dask.distributed Client with all available CPU cores
+            - N (int > 0): use dask.distributed Client with N workers
+            - <other>: pass-through value for dask scheduler (e.g., "threads", "processes")
         split_bands (bool): whether to split the output spectral bands into individual
             variables. Example: rho_w -> [rho_w_412, rho_w_443, ...]
         output_datasets: list of datasets to write to the output product.
@@ -90,7 +96,8 @@ def run_polymer(
         The path to the output product.
     """
     if isinstance(level1, (Path, str)):
-        ds = Level1(Path(level1), v1_compat=kwargs.get('v1_compat', False))
+        kw = {"chunks": chunks} if chunks is not None else {}
+        ds = Level1(Path(level1), **kw)
         basename = Path(level1).name
     elif isinstance(level1, xr.Dataset):
         ds = level1
@@ -112,7 +119,6 @@ def run_polymer(
     # Run polymer main function
     ds = run_polymer_dataset(
         ds,
-        scheduler=scheduler,
         outputs=outputs,
         outputs_tags=outputs_tags,
         outputs_names=outputs_names,
@@ -121,6 +127,16 @@ def run_polymer(
 
     if split_bands:
         ds = split(ds, 'bands')
+
+    if isinstance(multiprocessing, int):
+        if multiprocessing == 0:
+            scheduler = "sync"
+        elif multiprocessing == -1:
+            scheduler = Client(n_workers=os.cpu_count())
+        else:
+            scheduler = Client(n_workers=multiprocessing)
+    else:
+        scheduler = multiprocessing
 
     with dask_config.set(scheduler=scheduler):
         to_netcdf(ds, filename=Path(file_out), if_exists=if_exists, verbose=verbose)
@@ -199,7 +215,6 @@ def compat(ds: xr.Dataset) -> xr.Dataset:
 def run_polymer_dataset(
     ds: xr.Dataset,
     *,
-    scheduler: Literal["sync", "threads", "processes"] = "sync",
     outputs: Literal["created_modified", "all", "tags", "named"] = "created_modified",
     outputs_tags: Optional[list[str]] = None,
     outputs_names: Optional[list[str]] = None,
@@ -210,10 +225,6 @@ def run_polymer_dataset(
 
     Arguments:
         ds: Input Level-1 dataset.
-        scheduler ({"sync", "threads", "processes"}): dask scheduler to use
-            - "sync": single-threaded, synchronous execution
-            - "threads": parallel processing with multiple threads
-            - "processes": parallel processing with multiple processes
         outputs ({"created_modified", "all", "tags", "named"}):
             How to select output variables for the CompoundProcessor.
             - "created_modified": variables created or modified by the processors
@@ -342,8 +353,7 @@ def run_polymer_dataset(
         outputs_tags=outputs_tags,
         outputs_names=outputs_names,
     )
-    with dask_config.set(scheduler=scheduler):
-        res = compound.map_blocks(ds)
+    res = compound.map_blocks(ds)
 
     return res
 
