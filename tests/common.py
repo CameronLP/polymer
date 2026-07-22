@@ -5,7 +5,7 @@ import xarray as xr
 from eoread import eo
 from matplotlib import pyplot as plt
 from tempfile import TemporaryDirectory
-from polymer.main_v5 import default_output_datasets, additional_output_datasets
+from core.tests.graphics import xrimshow
 from eoread.common import timeit
 from polymer.main_v5 import run_polymer
 from polymer.main import run_atm_corr
@@ -15,24 +15,31 @@ from polymer.level2_nc import Level2_NETCDF
 
 from . import conftest
 
-def run_v4(testcase) -> xr.Dataset:
+def run_v4(testcase, roi=None, **kwargs) -> xr.Dataset:
     assert testcase["level1"].exists()
-    sx = testcase['roi']['x']
-    sy = testcase['roi']['y']
+    if roi is None:
+        roi = testcase["roi"]
+    sx = roi['x']
+    sy = roi['y']
     with TemporaryDirectory() as tmpdir:
         # Run polymer v4
         with timeit('polymer v4'):
             l2 = run_atm_corr(
-                Level1(str(testcase["level1"]),
+                Level1(
+                    str(testcase["level1"]),
                     sline=sy.start,
                     eline=sy.stop,
                     scol=sx.start,
                     ecol=sx.stop,
-                    ),
+                ),
                 Level2_NETCDF(
                     outdir=tmpdir,
-                    datasets=default_datasets+analysis_datasets+['Rtoa_gc']
-                    ),
+                    datasets=default_datasets
+                    + analysis_datasets
+                    + ["Rtoa_gc", "Rmol", "Rmolgli"],
+                ),
+                rod_version=5,   # For comparison between v4 and v5
+                **kwargs,
             )
 
         ds = load_polymer(l2.filename)
@@ -40,19 +47,33 @@ def run_v4(testcase) -> xr.Dataset:
     return ds
 
 
-def run_v5(testcase, **kwargs) -> xr.Dataset:
+def run_v5(testcase, roi=None, **kwargs) -> xr.Dataset:
     """
     Run polymer v5
     """
+    if roi is None:
+        roi = testcase["roi"]
     with TemporaryDirectory() as tmpdir:
         with timeit('polymer v5'):
             file_v5 = run_polymer(
                 testcase["level1"],
                 dir_out=tmpdir,
-                roi=testcase["roi"],
+                roi=roi,
                 split_bands=False,
-                outputs_tags=["level2", "debug"],
+                # outputs_tags=["level2", "debug"],
+                outputs="named",
+                outputs_names=[
+                    "Rtoa",
+                    "rho_gc",
+                    "Rprime",
+                    "rho_r",
+                    "rho_rg",
+                    "rho_rc",
+                    "Ratm",
+                    "rho_w",
+                ],
                 verbose=False,
+                dem='zero',
                 **kwargs,
             )
         ds = load_polymer(file_v5)
@@ -163,34 +184,78 @@ def diff(A, label_A: str, B, label_B: str, percentile=2, single_row=True):
     plt.tight_layout()
 
 
-def plot(request, testcase, ds: xr.Dataset):
+def _px_roi(testcase, ds: xr.Dataset):
     """
-    Plot polymer result
+    Convert absolute px coordinates from testcase to ROI-relative indices
+    for array indexing into ds.
     """
+    px = testcase.get('px')
+    roi = testcase.get('roi')
+
+    if px is None:
+        return None
+
+    if roi is not None:
+        return {
+            'x': px['x'] - roi['x'].start,
+            'y': px['y'] - roi['y'].start,
+        }
+    return px
+
+
+def plot_images(request, testcase, ds: xr.Dataset):
+    """
+    Plot polymer result images (Rtoa, rho_w band views).
+    """
+    px_roi = _px_roi(testcase, ds)
+
     for label, data, vmin, vmax in [
+        ('Rtoa(865)', ds.Rtoa.sel(bands=865), 0, 0.07),
         ('rho_w(560)', ds.rho_w.sel(bands=560), 0, 0.07),
         ]:
-        plt.figure()
-        data.plot.imshow(vmin=vmin, vmax=vmax, origin='upper')
-        if 'px' in testcase:
-            plt.plot([testcase['px']['x']], [testcase['px']['y']], 'r+')
-        plt.title(label)
+        fig, ax, im = xrimshow(data, vmin=vmin, vmax=vmax)
+        if px_roi is not None:
+            x_coord = float(data.x.values[px_roi['x']])
+            y_coord = float(data.y.values[px_roi['y']])
+            ax.plot([x_coord], [y_coord], 'r+')
+        ax.set_title(label)
         conftest.savefig(request)
 
-    # Plot spectra
-    if 'px' in testcase:
-        plt.figure()
-        px = ds.isel(testcase['px'])
-        for varname in [
-            'Rtoa',
-            'rho_gc',
-            'Rprime',
-            'Ratm',
-            'rho_w',
-            ]:
-            if varname in px:
-                px[varname].plot(label=varname)
-        plt.axis(ymin=-0.02, ymax=0.18)
-        plt.legend()
-        plt.grid(True)
-        conftest.savefig(request)
+
+def plot_spectra(request, testcase, ds: xr.Dataset):
+    """
+    Plot spectra at the central pixel.
+    """
+    px_roi = _px_roi(testcase, ds)
+
+    if px_roi is None:
+        return
+
+    plt.figure()
+    px_data = ds.isel({'x': px_roi['x'], 'y': px_roi['y']})
+    for varname in [
+        'Rtoa',
+        'rho_gc',
+        'Rprime',
+        # 'rho_r',
+        # 'rho_rg',
+        # 'Rmol',
+        # 'Rmolgli',
+        'rho_rc',
+        'Ratm',
+        'rho_w',
+        ]:
+        if varname in px_data:
+            px_data[varname].plot(label=varname)
+    plt.axis(ymin=-0.02, ymax=0.15)
+    plt.legend()
+    plt.grid(True)
+    conftest.savefig(request)
+
+
+def plot(request, testcase, ds: xr.Dataset):
+    """
+    Plot polymer result (images + spectra).
+    """
+    plot_images(request, testcase, ds)
+    plot_spectra(request, testcase, ds)
