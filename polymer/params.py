@@ -104,7 +104,7 @@ class Params(object):
     '''
     A class to store the processing parameters
     '''
-    def __init__(self, sensor=None, **kwargs):
+    def __init__(self, sensor=None, platform=None, **kwargs):
 
         # store attributes in an OrderedDict
         self.__dict__['_odict'] = OrderedDict()
@@ -113,6 +113,7 @@ class Params(object):
             warnings.warn("The 'dir_base' argument is deprecated, please locate it with the DIR_POLYMER_AUXDATA", DeprecationWarning)
 
         self.sensor = sensor
+        self.platform = platform
 
         self.dir_static = dir_static
         self.dir_common = dir_static/'common'
@@ -121,7 +122,7 @@ class Params(object):
         self.common(**kwargs)
 
         # define sensor-specific parameters
-        self.sensor_specific(sensor)
+        self.sensor_specific(sensor, platform)
 
         # setup custom parameters
         self.update(**kwargs)
@@ -261,7 +262,7 @@ class Params(object):
         # uncertainties
         self.uncertainties = 0
 
-    def sensor_specific(self, sensor):
+    def sensor_specific(self, sensor, platform):
         '''
         define sensor-specific default parameters
         '''
@@ -269,6 +270,12 @@ class Params(object):
             self.defaults_meris()
         elif sensor == 'MSI':
             self.defaults_msi()
+            if platform == 'Sentinel-2A':
+                self.defaults_msiA()
+            if platform == 'Sentinel-2B':
+                self.defaults_msiB()
+            if platform == 'Sentinel-2C':
+                self.defaults_msiC()
         elif sensor == 'OLCI':
             self.defaults_olci()
         elif sensor in ['VIIRS', 'VIIRSN']:
@@ -554,6 +561,18 @@ class Params(object):
         from eoread.ancillary_nasa import Ancillary_NASA
 
         self.ancillary = Ancillary_NASA()
+
+    def defaults_msiA(self):
+        self.srf_getter = 'eotools.srf.get_SRF_eumetsat'
+        self.srf_getter_arg = 'sentinel2_1_msi'
+
+    def defaults_msiB(self):
+        self.srf_getter = 'eotools.srf.get_SRF_eumetsat'
+        self.srf_getter_arg = 'sentinel2_2_msi'
+
+    def defaults_msiC(self):
+        self.srf_getter = 'eotools.srf.get_SRF_eumetsat'
+        self.srf_getter_arg = 'sentinel2_3_msi'
 
     def defaults_viirsn(self):
 

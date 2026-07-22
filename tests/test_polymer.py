@@ -13,6 +13,7 @@ from core.tests.graphics import xrimshow
 
 from tests.common import plot, plot_spectra, run_v4, run_v5
 from tests.test_samples import sample
+from eoread import autodetect
 
 from . import conftest
 
@@ -27,11 +28,6 @@ TESTCASES = {
         "roi": {"x": slice(680, 1168), "y": slice(2424, 2739)},
         "px": {"x": 1000, "y": 2571},  # Absolute coordinates (center of ROI)
     },
-    # "OLCI-large": {
-    #     "sample": "LEVEL1_SAMPLE_OLCI",
-    #     "roi": {"x": slice(0, 1500), "y": slice(2000, 3500)},
-    #     "px": {"x": 1000, "y": 1000},  # Absolute coordinates
-    # },
     "MSI": {
         "sample": "LEVEL1_SAMPLE_MSI",
         "roi": {"x": slice(1000, 1400), "y": slice(500, 800)},
@@ -97,8 +93,12 @@ def test_v4_px(request, testcase: dict):
     # 'unc': True,
     'nounc': False,
 }))
-def test_v5(request, uncertainties: bool, testcase: dict):
-    ds = run_v5(testcase, uncertainties=uncertainties, multiprocessing=-1)
+@pytest.mark.parametrize("multiprocessing", **pytest_utils.parametrize_dict({
+    'sync': 0,
+    # 'para': -1,
+}))
+def test_v5(request, uncertainties: bool, testcase: dict, multiprocessing: int):
+    ds = run_v5(testcase, uncertainties=uncertainties, multiprocessing=multiprocessing)
     plot(request, testcase, ds)
 
 

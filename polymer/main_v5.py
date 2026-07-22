@@ -144,10 +144,15 @@ def run_polymer(
     return Path(file_out)
 
 
-def init(ds: xr.Dataset, srf: xr.Dataset, params) -> xr.Dataset:
+def init(
+    ds: xr.Dataset, srf: xr.Dataset | None, params
+) -> tuple[xr.Dataset, xr.Dataset | None]:
     """
     Initialize dataset `ds` for use with Polymer
     (in place)
+    
+    Returns:
+        Tuple of (ds, srf) with bands renamed if bands_l1 is defined.
     """
     init_Rtoa(ds)
 
@@ -157,10 +162,12 @@ def init(ds: xr.Dataset, srf: xr.Dataset, params) -> xr.Dataset:
         ds = ds.assign_coords(
             bands=params.bands_l1,
         )
+        if srf is not None:
+            srf = rename(srf, params.bands_l1)
 
     # Central wavelength
     if 'cwav' not in ds:
-        assert len(srf) > 0
+        assert srf is not None
         ds['cwav'] = xr.DataArray(
             list(integrate_srf(srf, lambda x: x).values()),
             dims=['bands'],
@@ -184,7 +191,7 @@ def init(ds: xr.Dataset, srf: xr.Dataset, params) -> xr.Dataset:
     # Store the params in the object attributes
     ds.attrs.update(params.items())
 
-    return ds
+    return ds, srf
 
 
 def compat(ds: xr.Dataset) -> xr.Dataset:
@@ -247,20 +254,22 @@ def run_polymer_dataset(
     """
     ds = compat(ds)
 
-    params = Params(getattr(ds, 'sensor', None), **kwargs)
+    sensor = getattr(ds, 'sensor', None)
+    platform = getattr(ds, 'platform', None)
+    params = Params(sensor, platform=platform, **kwargs)
 
     if "srf_getter" in params.asdict():
-        srf = rename(
-            get_SRF(ds, **params.asdict()),
-            ds.bands.values,
-            thres_check=kwargs.get("srf_thres_check", 10.0),
-        )
+        srf = get_SRF(ds, **params.asdict(), rename_method="bands")
     else:
         # empty dictionary when srfs are not provided
-        srf = xr.Dataset()
+        srf = None
 
-    ds = init(ds, srf, params)
+    ds, srf = init(ds, srf, params)
+
+    # Bands selection (in ds and srf)
     ds = ds.sel(bands=params.bands_read()).chunk(bands=-1)
+    if srf is not None:
+        srf = srf[params.bands_read()]
 
     #
     # Build list of processors
@@ -310,7 +319,7 @@ def run_polymer_dataset(
     )
     
     # Rayleigh correction
-    processors.append(RayleighCorrection())
+    processors.append(RayleighCorrection(srf=srf))
     
     # Rename RayleighCorrection output to Polymer naming conventions
     processors.append(RenameRayleigh(params.band_cloudmask))
