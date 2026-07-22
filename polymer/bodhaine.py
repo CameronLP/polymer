@@ -8,6 +8,8 @@ Rayleigh Optical Depth calculation from Bodhaine, 99
 rod(lam, co2, lat, z, P)
 '''
 
+from typing import Literal
+
 from scipy.constants import value
 import numpy as np
 
@@ -94,7 +96,49 @@ def g(lat, z) :
             + (7.254 * 1e-11 + 1e-13 * np.cos(2*lat*np.pi/180.)) * z**2
             - (1.517 * 1e-17 + 6 * 1e-20 * np.cos(2*lat*np.pi/180.)) * z**3)
 
-def rod(lam, co2=400., lat=45., z=0., P=1013.25):
+def column_number_density(
+    co2=400.0,
+    lat=45.0,
+    z=0.0,
+    P=1013.25,
+    pressure: Literal["sea-level", "surface"] = "surface",
+):
+    """
+    Calculate column number density of air molecules (molecules/cm²).
+
+    Parameters
+    ----------
+    co2 : float
+        CO2 concentration in ppm. Default 400.0.
+    lat : float
+        Latitude in degrees. Default 45.0.
+    z : float
+        Altitude in meters. Default 0.0.
+    P : float
+        Reference pressure in hPa. Default 1013.25.
+    pressure : Literal["sea-level", "surface"]
+        Pressure reference type. Default "surface".
+
+    Returns
+    -------
+    float
+        Column number density of air molecules.
+    """
+    Avogadro = value('Avogadro constant')
+    zs = 0.73737 * z + 5517.56  # effective mass-weighted altitude
+    G = g(lat, zs)
+    # air pressure at the pixel (i.e. at altitude) in hPa
+    if pressure == 'sea-level':
+        Psurf = (P * (1. - 0.0065 * z / 288.15) ** 5.255) * 1000.  # air pressure at pixel location in dyn / cm2, which is hPa * 1000
+    elif pressure == 'surface':
+        Psurf = P * 1000.  # convert to dyn/cm2
+    else:
+        raise ValueError(f'Invalid pressure type ({pressure})')
+
+    return Psurf * Avogadro / ma(co2) / G
+
+
+def rod(lam, co2=400., lat=45., z=0., P=1013.25, rod_version=4):
     """
     Rayleigh optical depth calculation for Bodhaine, 99
         lam : um
@@ -102,10 +146,21 @@ def rod(lam, co2=400., lat=45., z=0., P=1013.25):
         lat : deg (scalar)
         z : m
         P : hPa
+        rod_version : int
+            Rayleigh optical depth calculation version:
+            - 4: As implemented in Polymer v4
+            - 5: Fixed implementation (Polymer v5)
 
     Example: rod(0.4, 400., 45., 0., 1013.25)
     """
-    Avogadro = value('Avogadro constant')
-    G = g(lat, z)
-    return raycrs(lam, co2) * P*1e3 * Avogadro/ma(co2)/G
+    if rod_version == 5:
+        return raycrs(lam, co2) * column_number_density(
+            co2=co2, lat=lat, z=z, P=P
+        )
+    elif rod_version == 4:
+        Avogadro = value('Avogadro constant')
+        G = g(lat, z)
+        return raycrs(lam, co2) * P*1e3 * Avogadro/ma(co2)/G
+    else:
+        raise ValueError(rod_version)
 
