@@ -156,14 +156,18 @@ def init(
     """
     init_Rtoa(ds)
 
-    # Rename bands names if "bands_l1" is defined in params
-    if hasattr(params, 'bands_l1') and params.bands_l1 is not None:
-        assert len(params.bands_l1) == len(ds.bands)
-        ds = ds.assign_coords(
-            bands=params.bands_l1,
-        )
-        if srf is not None:
-            srf = rename(srf, params.bands_l1)
+
+    try:
+        if hasattr(params, 'bands_l1') and params.bands_l1 is not 'None':
+            assert len(params.bands_l1) == len(ds.bands)
+            ds = ds.assign_coords(
+                bands=params.bands_l1,
+            )
+            if srf is not None:
+                srf = rename(srf, params.bands_l1)
+    except KeyError:
+        pass
+
 
     # Central wavelength
     if 'cwav' not in ds:
