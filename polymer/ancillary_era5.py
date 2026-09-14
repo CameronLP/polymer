@@ -16,6 +16,46 @@ from polymer.ancillary import LUT_LatLon
 from polymer.params import dir_ancillary
 
 
+def resolve_expver(ds, allow_preliminary=True):
+    '''
+    Collapse an ERA5 `expver` dimension, if present.
+
+    CDS's unified ERA5 dataset serves preliminary "ERA5T" data for the most
+    recent ~5 days-3 months before final ERA5 is published. Requests that
+    land in or near that window come back with an `expver` dimension
+    (expver=1: final ERA5, expver=5: preliminary ERA5T) instead of a plain
+    single-time dataset.
+
+    Returns (ds_resolved, source) where source is 'final' or 'preliminary'.
+    Raises if only preliminary data is available and allow_preliminary=False,
+    or if neither expver value has data.
+    '''
+    if 'expver' not in ds.dims:
+        return ds, 'final'
+
+    expver_values = ds.expver.values
+
+    def _all_nan(d):
+        return all(bool(np.all(np.isnan(d[v].values))) for v in d.data_vars)
+
+    if 1 in expver_values:
+        ds_final = ds.sel(expver=1)
+        if not _all_nan(ds_final):
+            return ds_final, 'final'
+
+    if 5 in expver_values:
+        if not allow_preliminary:
+            raise Exception(
+                'Only preliminary ERA5T data is available for this date, '
+                'and allow_preliminary=False')
+        ds_prelim = ds.sel(expver=5)
+        if not _all_nan(ds_prelim):
+            return ds_prelim, 'preliminary'
+
+    raise Exception('No valid ERA5/ERA5T data found (expver={})'.format(
+        list(expver_values)))
+
+
 class Ancillary_ERA5(object):
     '''
     Ancillary data provider using ERA5
@@ -26,16 +66,23 @@ class Ancillary_ERA5(object):
     * pattern: pattern for storing the ERA5 files in NetCDF format
     * offline (bool, default False).
         If true, sets offline mode: don't download anything and fail upon missing file.
+    * allow_preliminary (bool, default True).
+        If the requested date falls in CDS's near-real-time window, ERA5
+        final data may not be published yet and only preliminary ERA5T data
+        is available. If True, use it anyway (recording this in
+        D.filename); if False, raise an exception instead.
     '''
     def __init__(self,
                  directory=str(dir_ancillary/'ERA5/'),
                  pattern='%Y/%m/%d/era5_%Y%m%d_%H%M%S.nc',
                  time_resolution=1,
                  offline=False,
+                 allow_preliminary=True,
                  ):
         self.time_resolution = time_resolution
         self.directory = directory
         self.pattern = pattern
+        self.allow_preliminary = allow_preliminary
         self.ERA5 = ERA5(directory=directory, pattern=pattern, offline=offline)
 
     def get(self, param, date):
@@ -65,6 +112,9 @@ class Ancillary_ERA5(object):
 
         ERA1 = ds_era5_1.isel({time_dim1: 0})
         ERA2 = ds_era5_2.isel({time_dim2: 0})
+
+        ERA1, src1 = resolve_expver(ERA1, self.allow_preliminary)
+        ERA2, src2 = resolve_expver(ERA2, self.allow_preliminary)
 
         x = (date - t1).total_seconds()/(t2 - t1).total_seconds()
         
@@ -100,6 +150,8 @@ class Ancillary_ERA5(object):
         D.date = date
         D.filename = {'ERA5_1': file1,
                       'ERA5_2': file2,
+                      'ERA5_1_source': src1,
+                      'ERA5_2_source': src2,
                      }
 
         return D
@@ -129,52 +181,73 @@ class ERA5(object):
         '''
         Download a single ERA5 file for a given datetime `dt`.
 
+        Returns the file name. If only preliminary ERA5T data is available
+        for this date (CDS's near-real-time window, ~5 days-3 months before
+        final ERA5 is published), the file is cached separately under a
+        `.preliminary` suffix rather than the normal final-data cache path.
+        This cache is not automatically promoted once ERA5 finalizes for
+        that hour; deleting the stale `.preliminary` file will cause the
+        next call to re-fetch it, which will then land in the normal
+        (final) cache path.
+
         Returns the file name
         '''
         assert dt.minute == 0
         assert dt.second == 0
 
         target = os.path.join(self.directory, dt.strftime(self.pattern))
+        target_preliminary = target + '.preliminary'
 
-        if not os.path.exists(target):
+        if os.path.exists(target):
+            return target
 
-            if self.offline:
-                raise Exception(
-                    f'ERA5: File {target} is missing and offline'
-                    ' mode has been set')
+        if os.path.exists(target_preliminary):
+            return target_preliminary
 
-            target_tmp = target + '.tmp'
-            directory = os.path.dirname(target)
-            print(f'Download {dt} -> {target}')
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+        if self.offline:
+            raise Exception(
+                f'ERA5: File {target} is missing and offline'
+                ' mode has been set')
 
-            self.client.retrieve(
-                'reanalysis-era5-single-levels',
-                {
-                    'product_type': 'reanalysis',
-                    'variable': ['10m_u_component_of_wind',
-                                 '10m_v_component_of_wind',
-                                 'surface_pressure',
-                                 'total_column_ozone',
-                                 'total_column_water_vapour'
-                                 ],
-                    'year':[
-                        f'{dt.year}',
-                    ],
-                    'month':[
-                        f'{dt.month:02}',
-                    ],
-                    'day':[
-                        f'{dt.day:02}',
-                    ],
-                    'time': f'{dt.hour:02}:00',
-                    'format':'netcdf'  # grib, netcdf
-                },
-                target_tmp)
-            os.rename(target_tmp, target)
+        target_tmp = target + '.tmp'
+        directory = os.path.dirname(target)
+        print(f'Download {dt} -> {target}')
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
-        return target
+        self.client.retrieve(
+            'reanalysis-era5-single-levels',
+            {
+                'product_type': 'reanalysis',
+                'variable': ['10m_u_component_of_wind',
+                             '10m_v_component_of_wind',
+                             'surface_pressure',
+                             'total_column_ozone',
+                             'total_column_water_vapour'
+                             ],
+                'year':[
+                    f'{dt.year}',
+                ],
+                'month':[
+                    f'{dt.month:02}',
+                ],
+                'day':[
+                    f'{dt.day:02}',
+                ],
+                'time': f'{dt.hour:02}:00',
+                'format':'netcdf'  # grib, netcdf
+            },
+            target_tmp)
+
+        with xr.open_dataset(target_tmp) as ds_check:
+            time_dim = 'time' if ('time' in ds_check) else 'valid_time'
+            _, source = resolve_expver(ds_check.isel({time_dim: 0}),
+                                        allow_preliminary=True)
+
+        final_path = target if source == 'final' else target_preliminary
+        os.rename(target_tmp, final_path)
+
+        return final_path
 
     def download_range(self, d0, d1, time_resolution=1):
         t = d0

@@ -3,14 +3,68 @@
 
 
 from pathlib import Path
+import numpy as np
 import pytest
+import xarray as xr
 from datetime import datetime, timedelta
 from polymer.ancillary import Ancillary_NASA
-from polymer.ancillary_era5 import Ancillary_ERA5
+from polymer.ancillary_era5 import Ancillary_ERA5, resolve_expver
 from matplotlib import pyplot as plt
 from . import conftest
 from os import system
 from tempfile import TemporaryDirectory
+
+
+def _expver_dataset(final_values, preliminary_values):
+    '''
+    Build a synthetic dataset shaped like CDS's ERA5 response when an
+    `expver` dimension is present, with a single dummy 2x2 variable 'sp'.
+    Pass None for a given branch to omit that expver value entirely.
+    '''
+    expvers = []
+    data = []
+    for expver, values in [(1, final_values), (5, preliminary_values)]:
+        if values is not None:
+            expvers.append(expver)
+            data.append(np.full((2, 2), values, dtype=float))
+
+    return xr.Dataset(
+        {'sp': (('expver', 'y', 'x'), np.stack(data))},
+        coords={'expver': expvers},
+    )
+
+
+def test_resolve_expver_no_expver_dim():
+    ds = xr.Dataset({'sp': (('y', 'x'), np.zeros((2, 2)))})
+    ds_out, source = resolve_expver(ds)
+    assert source == 'final'
+    assert ds_out is ds
+
+
+def test_resolve_expver_final_available():
+    ds = _expver_dataset(final_values=1013., preliminary_values=1012.)
+    ds_out, source = resolve_expver(ds)
+    assert source == 'final'
+    assert (ds_out.sp.values == 1013.).all()
+
+
+def test_resolve_expver_falls_back_to_preliminary():
+    ds = _expver_dataset(final_values=np.nan, preliminary_values=1012.)
+    ds_out, source = resolve_expver(ds, allow_preliminary=True)
+    assert source == 'preliminary'
+    assert (ds_out.sp.values == 1012.).all()
+
+
+def test_resolve_expver_preliminary_disallowed():
+    ds = _expver_dataset(final_values=np.nan, preliminary_values=1012.)
+    with pytest.raises(Exception):
+        resolve_expver(ds, allow_preliminary=False)
+
+
+def test_resolve_expver_no_data_at_all():
+    ds = _expver_dataset(final_values=np.nan, preliminary_values=np.nan)
+    with pytest.raises(Exception):
+        resolve_expver(ds)
 
 
 @pytest.mark.parametrize('variable,typ_value', [
@@ -22,7 +76,7 @@ from tempfile import TemporaryDirectory
     ('NASA', 1),
     ('NASA', 20),
     ('NASA', 100),
-    # ('ERA5', 1),  # expected to fail (data not yet available)
+    ('ERA5', 1),  # exercises the ERA5T/expver fallback path
     ('ERA5', 20),
     ('ERA5', 100),
 ])
