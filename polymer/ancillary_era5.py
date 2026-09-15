@@ -16,30 +16,54 @@ from polymer.ancillary import LUT_LatLon
 from polymer.params import dir_ancillary
 
 
+def _expver_to_int(v):
+    # expver comes back as a plain int (1/5) from the legacy CDS client,
+    # or as a zero-padded 4-char experiment-version string ("0001"/"0005")
+    # from the newer ecmwf-datastores client - normalize both to int.
+    return int(v)
+
+
 def resolve_expver(ds, allow_preliminary=True):
     '''
-    Collapse an ERA5 `expver` dimension, if present.
+    Resolve/collapse ERA5's `expver` field, however it's represented.
 
     CDS's unified ERA5 dataset serves preliminary "ERA5T" data for the most
-    recent ~5 days-3 months before final ERA5 is published. Requests that
-    land in or near that window come back with an `expver` dimension
-    (expver=1: final ERA5, expver=5: preliminary ERA5T) instead of a plain
-    single-time dataset.
+    recent ~5 days-3 months before final ERA5 is published (expver=1/"0001":
+    final ERA5, expver=5/"0005": preliminary ERA5T). A request spanning both
+    regimes comes back with `expver` as a genuine dimension with both
+    values; a request that's cleanly on one side of the boundary still
+    carries `expver` as a plain scalar coordinate holding whichever single
+    value applies - it is NOT safe to assume that scalar case means
+    'final' (confirmed 2026-09-15: a ~3-week-old date came back as scalar
+    expver='0005', i.e. still preliminary - ERA5's actual publication lag
+    can exceed the nominal ~5 days).
 
-    Returns (ds_resolved, source) where source is 'final' or 'preliminary'.
-    Raises if only preliminary data is available and allow_preliminary=False,
-    or if neither expver value has data.
+    Returns (ds_resolved, source) where source is 'final', 'preliminary',
+    or 'unknown(expver=<value>)' for an unrecognized code. Raises if only
+    preliminary data is available and allow_preliminary=False, or if
+    neither expver value has data.
     '''
-    if 'expver' not in ds.dims:
+    if 'expver' not in ds.variables:
         return ds, 'final'
-
-    expver_values = ds.expver.values
 
     def _all_nan(d):
         return all(bool(np.all(np.isnan(d[v].values))) for v in d.data_vars)
 
+    if 'expver' not in ds.dims:
+        # Single value already selected by CDS - just report it.
+        expver_value = _expver_to_int(ds.expver.values)
+        if expver_value == 5 and not allow_preliminary:
+            raise Exception(
+                'Only preliminary ERA5T data is available for this date, '
+                'and allow_preliminary=False')
+        source = {1: 'final', 5: 'preliminary'}.get(
+            expver_value, f'unknown(expver={expver_value})')
+        return ds, source
+
+    expver_values = [_expver_to_int(v) for v in ds.expver.values]
+
     if 1 in expver_values:
-        ds_final = ds.sel(expver=1)
+        ds_final = ds.isel(expver=expver_values.index(1))
         if not _all_nan(ds_final):
             return ds_final, 'final'
 
@@ -48,7 +72,7 @@ def resolve_expver(ds, allow_preliminary=True):
             raise Exception(
                 'Only preliminary ERA5T data is available for this date, '
                 'and allow_preliminary=False')
-        ds_prelim = ds.sel(expver=5)
+        ds_prelim = ds.isel(expver=expver_values.index(5))
         if not _all_nan(ds_prelim):
             return ds_prelim, 'preliminary'
 
